@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use vte::Parser;
@@ -94,6 +94,7 @@ pub struct TerminalSession {
 
 const PUMP_BATCH_BYTES: usize = 16 * 1024;
 const PUMP_RECV_TIMEOUT: Duration = Duration::from_millis(50);
+const SYNC_FLUSH_TIMEOUT: Duration = Duration::from_millis(100);
 
 impl TerminalSession {
     pub fn new(mut config: TerminalConfig) -> Result<Self, PtyError> {
@@ -465,6 +466,7 @@ fn spawn_pump(shared: Weak<SessionShared>, rx: Receiver<Vec<u8>>) -> JoinHandle<
 }
 
 fn pump_loop(weak: Weak<SessionShared>, rx: Receiver<Vec<u8>>) {
+    let mut sync_pending: Option<Instant> = None;
     loop {
         let msg = rx.recv_timeout(PUMP_RECV_TIMEOUT);
         // Сессию берём только на время обработки: если её уже освободили,
@@ -477,8 +479,15 @@ fn pump_loop(weak: Weak<SessionShared>, rx: Receiver<Vec<u8>>) {
             break;
         }
         match msg {
-            Ok(chunk) => process_chunk(&shared, chunk, &rx),
-            Err(RecvTimeoutError::Timeout) => {}
+            Ok(chunk) => process_chunk(&shared, chunk, &rx, &mut sync_pending),
+            Err(RecvTimeoutError::Timeout) => {
+                if let Some(since) = sync_pending {
+                    if since.elapsed() >= SYNC_FLUSH_TIMEOUT {
+                        sync_pending = None;
+                        shared.revision.fetch_add(1, Ordering::Release);
+                    }
+                }
+            }
             Err(RecvTimeoutError::Disconnected) => {
                 // Сам PtySession не сбрасываем здесь под замком: его Drop
                 // ждёт reader-поток и шлёт сигнал ребёнку — делаем это вне
@@ -502,7 +511,12 @@ fn mark_exited(shared: &SessionShared) {
     }
 }
 
-fn process_chunk(shared: &SessionShared, first: Vec<u8>, rx: &Receiver<Vec<u8>>) {
+fn process_chunk(
+    shared: &SessionShared,
+    first: Vec<u8>,
+    rx: &Receiver<Vec<u8>>,
+    sync_pending: &mut Option<Instant>,
+) {
     let mut buf = first;
     while buf.len() < PUMP_BATCH_BYTES {
         match rx.try_recv() {
@@ -512,6 +526,8 @@ fn process_chunk(shared: &SessionShared, first: Vec<u8>, rx: &Receiver<Vec<u8>>)
     }
 
     let mut title_to_push: Option<String> = None;
+    let mut replies: Vec<Vec<u8>> = Vec::new();
+    let mut in_sync_update = false;
     if let Ok(mut s) = shared.state.lock() {
         let prev_title_rev = s.title_revision;
         // SAFETY-NOTE: одновременно мутируем grid через performer и parser
@@ -526,10 +542,24 @@ fn process_chunk(shared: &SessionShared, first: Vec<u8>, rx: &Receiver<Vec<u8>>)
         for b in &buf {
             parser.advance(&mut performer, *b);
         }
+        replies = performer.take_replies();
+        in_sync_update = grid.sync_update();
         let _ = prev_title_rev;
         if let Some(t) = title.as_ref() {
             *title_revision = title_revision.wrapping_add(1);
             title_to_push = Some(t.clone());
+        }
+    }
+
+    if !replies.is_empty() {
+        if let Ok(mut pty) = shared.pty.lock() {
+            if let Some(p) = pty.as_mut() {
+                for r in &replies {
+                    if let Err(e) = p.write(r) {
+                        log::error!("[syngui terminal] pty reply write error: {e}");
+                    }
+                }
+            }
         }
     }
 
@@ -540,7 +570,16 @@ fn process_chunk(shared: &SessionShared, first: Vec<u8>, rx: &Receiver<Vec<u8>>)
             }
         }
     }
-    shared.revision.fetch_add(1, Ordering::Release);
+    if in_sync_update {
+        let since = *sync_pending.get_or_insert_with(Instant::now);
+        if since.elapsed() >= SYNC_FLUSH_TIMEOUT {
+            *sync_pending = None;
+            shared.revision.fetch_add(1, Ordering::Release);
+        }
+    } else {
+        *sync_pending = None;
+        shared.revision.fetch_add(1, Ordering::Release);
+    }
 }
 
 impl Drop for SessionShared {

@@ -3,7 +3,12 @@ use crate::input::{Key, Modifiers};
 const CSI: &str = "\x1b[";
 const SS3: &str = "\x1bO";
 
+#[allow(dead_code)]
 pub fn map_key(key: Key, mods: Modifiers) -> Option<Vec<u8>> {
+    map_key_with_mode(key, mods, false)
+}
+
+pub fn map_key_with_mode(key: Key, mods: Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
     match key {
         Key::Enter if mods.shift => Some(b"\n".to_vec()),
         Key::Enter => Some(b"\r".to_vec()),
@@ -23,13 +28,13 @@ pub fn map_key(key: Key, mods: Modifiers) -> Option<Vec<u8>> {
         }
         Key::Escape => Some(b"\x1b".to_vec()),
 
-        Key::Up => Some(arrow(b'A', mods)),
-        Key::Down => Some(arrow(b'B', mods)),
-        Key::Right => Some(arrow(b'C', mods)),
-        Key::Left => Some(arrow(b'D', mods)),
+        Key::Up => Some(arrow(b'A', mods, app_cursor)),
+        Key::Down => Some(arrow(b'B', mods, app_cursor)),
+        Key::Right => Some(arrow(b'C', mods, app_cursor)),
+        Key::Left => Some(arrow(b'D', mods, app_cursor)),
 
-        Key::Home => Some(arrow(b'H', mods)),
-        Key::End => Some(arrow(b'F', mods)),
+        Key::Home => Some(arrow(b'H', mods, app_cursor)),
+        Key::End => Some(arrow(b'F', mods, app_cursor)),
         Key::PageUp => Some(tilde(5, mods)),
         Key::PageDown => Some(tilde(6, mods)),
         Key::Insert => Some(tilde(2, mods)),
@@ -86,10 +91,11 @@ fn modifier_param(mods: Modifiers) -> u8 {
     1 + v
 }
 
-fn arrow(letter: u8, mods: Modifiers) -> Vec<u8> {
+fn arrow(letter: u8, mods: Modifiers, app_cursor: bool) -> Vec<u8> {
     let m = modifier_param(mods);
     if m == 1 {
-        format!("{CSI}{}", letter as char).into_bytes()
+        let prefix = if app_cursor { SS3 } else { CSI };
+        format!("{prefix}{}", letter as char).into_bytes()
     } else {
         format!("{CSI}1;{}{}", m, letter as char).into_bytes()
     }

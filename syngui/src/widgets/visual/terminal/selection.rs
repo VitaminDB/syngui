@@ -1,4 +1,4 @@
-use super::grid::{Cell, Grid};
+use super::grid::{Cell, CellFlags, Grid};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum SelectionMode {
@@ -208,7 +208,11 @@ fn collect_linear(grid: &Grid, start: GridPos, end: GridPos) -> String {
         let c1 = if line == end.line { end.col } else { last_col };
         let c0 = c0.min(last_col) as usize;
         let c1 = c1.min(last_col) as usize;
-        let text: String = cells[c0..=c1].iter().map(|c| c.ch).collect();
+        let text: String = cells[c0..=c1]
+            .iter()
+            .filter(|c| !c.flags.contains(CellFlags::WIDE_SPACER))
+            .map(|c| c.ch)
+            .collect();
         if line == end.line {
             out.push_str(&text);
         } else {
@@ -232,7 +236,11 @@ fn collect_block(grid: &Grid, start: GridPos, end: GridPos) -> String {
             let last_col = (cells.len() - 1) as u16;
             let lo = c_min.min(last_col) as usize;
             let hi = c_max.min(last_col) as usize;
-            let text: String = cells[lo..=hi].iter().map(|c| c.ch).collect();
+            let text: String = cells[lo..=hi]
+                .iter()
+                .filter(|c| !c.flags.contains(CellFlags::WIDE_SPACER))
+                .map(|c| c.ch)
+                .collect();
             out.push_str(text.trim_end_matches(|c: char| c == ' ' || c == '\t'));
         }
         if line < line_max {

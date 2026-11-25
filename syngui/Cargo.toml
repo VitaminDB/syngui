@@ -138,6 +138,7 @@ ffmpeg-next = { version = "9.1", optional = true, default-features = false, feat
 # Element через crossbeam-channel (ниже под cfg(not wasm/android)).
 portable-pty = { version = "0.8", optional = true }
 vte = { version = "0.13", optional = true }
+unicode-width = { version = "0.2", optional = true }
 # Открытие http(s)/file URL в системном браузере. Используется виджетами,
 # которым нужно «click → external app»: терминал (OSC 8 hyperlinks),
 # MarkdownView (клик по ссылке). Подключается через feature `links`,
@@ -318,7 +319,7 @@ single-instance = ["winit", "dep:single-instance", "dep:interprocess"]
 # Grid/scrollback/SGR реализованы внутри syngui. crossbeam-channel — для
 # передачи байтов из reader-потока в Element. На wasm/android фича не
 # собирается (нет PTY API), сборка фреймворка без неё проходит.
-terminal = ["dep:portable-pty", "dep:vte", "dep:crossbeam-channel", "links"]
+terminal = ["dep:portable-pty", "dep:vte", "dep:unicode-width", "dep:crossbeam-channel", "links"]
 
 # CodeEditor — продвинутый виджет редактора кода (как Zed/VSCode):
 # rope-буфер (ropey) + synoptic regex-подсветка + виртуальный рендер

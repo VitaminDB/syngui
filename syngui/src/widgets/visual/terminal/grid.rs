@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use bitflags::bitflags;
+use unicode_width::UnicodeWidthChar;
 
 use super::mouse::{MouseEncoding, MouseMode};
 
@@ -12,12 +13,16 @@ const MAX_LINK_POOL: usize = 4_096;
 bitflags! {
     #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
     pub struct CellFlags: u8 {
-        const BOLD       = 0b0000_0001;
-        const FAINT      = 0b0000_0010;
-        const ITALIC     = 0b0000_0100;
-        const UNDERLINE  = 0b0000_1000;
-        const REVERSE    = 0b0001_0000;
-        const STRIKE     = 0b0010_0000;
+        const BOLD        = 0b0000_0001;
+        const FAINT       = 0b0000_0010;
+        const ITALIC      = 0b0000_0100;
+        const UNDERLINE   = 0b0000_1000;
+        const REVERSE     = 0b0001_0000;
+        const STRIKE      = 0b0010_0000;
+        /// Первая ячейка двухколоночного глифа (CJK, эмодзи).
+        const WIDE        = 0b0100_0000;
+        /// Вторая (пустая) ячейка-продолжение двухколоночного глифа.
+        const WIDE_SPACER = 0b1000_0000;
     }
 }
 
@@ -69,12 +74,22 @@ pub struct Cursor {
     pub wrap_pending: bool,
 }
 
+#[derive(Clone, Copy, Default, Debug)]
+struct SavedCursor {
+    cursor: Cursor,
+    attr: Attr,
+    origin_mode: bool,
+}
+
 struct InactiveBuffer {
     cells: Vec<Vec<Cell>>,
     wrapped: Vec<bool>,
     cursor: Cursor,
     current_attr: Attr,
-    saved_cursor: Option<Cursor>,
+    saved_cursor: Option<SavedCursor>,
+    scroll_top: usize,
+    scroll_bottom: usize,
+    origin_mode: bool,
 }
 
 pub struct Grid {
@@ -85,7 +100,7 @@ pub struct Grid {
     scrollback: VecDeque<Vec<Cell>>,
     wrapped_scrollback: VecDeque<bool>,
     cursor: Cursor,
-    saved_cursor: Option<Cursor>,
+    saved_cursor: Option<SavedCursor>,
     current_attr: Attr,
     scroll_top: usize,
     scroll_bottom: usize,
@@ -100,6 +115,18 @@ pub struct Grid {
     focus_events: bool,
     cursor_visible: bool,
     alt_scroll: bool,
+    /// IRM (`CSI 4 h/l`): вставка символов сдвигает хвост строки вправо.
+    insert_mode: bool,
+    /// DECCKM (`CSI ? 1 h/l`): стрелки/Home/End шлют SS3 (`\x1bO...`).
+    app_cursor: bool,
+    /// DECOM (`CSI ? 6 h/l`): координаты CUP/VPA относительно scroll region.
+    origin_mode: bool,
+    /// DECAWM (`CSI ? 7 h/l`): автоперенос в конце строки.
+    auto_wrap: bool,
+    /// Synchronized Output (`CSI ? 2026 h/l`): буферизация перерисовки кадра.
+    sync_update: bool,
+    /// Последний напечатанный графический символ (для `CSI n b` REP).
+    last_printed: Option<char>,
     current_link_id: Option<u32>,
     links: Vec<Arc<str>>,
     link_lookup: HashMap<Arc<str>, u32>,
@@ -131,6 +158,12 @@ impl Grid {
             focus_events: false,
             cursor_visible: true,
             alt_scroll: true,
+            insert_mode: false,
+            app_cursor: false,
+            origin_mode: false,
+            auto_wrap: true,
+            sync_update: false,
+            last_printed: None,
             current_link_id: None,
             links: Vec::new(),
             link_lookup: HashMap::new(),
@@ -259,6 +292,43 @@ impl Grid {
     pub fn on_alt(&self) -> bool {
         self.on_alt
     }
+    #[allow(dead_code)]
+    pub fn insert_mode(&self) -> bool {
+        self.insert_mode
+    }
+    pub fn set_insert_mode(&mut self, on: bool) {
+        self.insert_mode = on;
+    }
+    pub fn app_cursor(&self) -> bool {
+        self.app_cursor
+    }
+    pub fn set_app_cursor(&mut self, on: bool) {
+        self.app_cursor = on;
+    }
+    #[allow(dead_code)]
+    pub fn origin_mode(&self) -> bool {
+        self.origin_mode
+    }
+    pub fn set_origin_mode(&mut self, on: bool) {
+        self.origin_mode = on;
+        self.cursor.row = if on { self.scroll_top } else { 0 };
+        self.cursor.col = 0;
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+    #[allow(dead_code)]
+    pub fn auto_wrap(&self) -> bool {
+        self.auto_wrap
+    }
+    pub fn set_auto_wrap(&mut self, on: bool) {
+        self.auto_wrap = on;
+    }
+    pub fn sync_update(&self) -> bool {
+        self.sync_update
+    }
+    pub fn set_sync_update(&mut self, on: bool) {
+        self.sync_update = on;
+    }
 
     pub fn enter_alt_screen(&mut self, clear: bool) {
         if self.on_alt {
@@ -281,6 +351,27 @@ impl Grid {
         self.revision += 1;
     }
 
+    /// Полный сброс терминала (`ESC c`, RIS).
+    pub fn reset(&mut self) {
+        if self.on_alt {
+            self.exit_alt_screen();
+        }
+        self.clear_active();
+        self.mouse_mode = MouseMode::default();
+        self.mouse_encoding = MouseEncoding::default();
+        self.bracketed_paste = false;
+        self.focus_events = false;
+        self.cursor_visible = true;
+        self.alt_scroll = true;
+        self.insert_mode = false;
+        self.app_cursor = false;
+        self.origin_mode = false;
+        self.auto_wrap = true;
+        self.sync_update = false;
+        self.current_link_id = None;
+        self.revision += 1;
+    }
+
     fn clear_active(&mut self) {
         for row in self.cells.iter_mut() {
             for c in row.iter_mut() {
@@ -293,6 +384,10 @@ impl Grid {
         self.cursor = Cursor::default();
         self.current_attr = Attr::default();
         self.saved_cursor = None;
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows.saturating_sub(1);
+        self.origin_mode = false;
+        self.last_printed = None;
     }
 
     fn swap_with_inactive(&mut self) {
@@ -302,6 +397,9 @@ impl Grid {
             cursor: self.cursor,
             current_attr: self.current_attr,
             saved_cursor: self.saved_cursor,
+            scroll_top: self.scroll_top,
+            scroll_bottom: self.scroll_bottom,
+            origin_mode: self.origin_mode,
         };
         let restore = self.inactive.take().unwrap_or_else(|| InactiveBuffer {
             cells: vec![vec![Cell::default(); self.cols]; self.rows],
@@ -309,12 +407,22 @@ impl Grid {
             cursor: Cursor::default(),
             current_attr: Attr::default(),
             saved_cursor: None,
+            scroll_top: 0,
+            scroll_bottom: self.rows.saturating_sub(1),
+            origin_mode: false,
         });
         self.cells = restore.cells;
         self.wrapped_view = restore.wrapped;
         self.cursor = restore.cursor;
         self.current_attr = restore.current_attr;
         self.saved_cursor = restore.saved_cursor;
+        self.scroll_top = restore.scroll_top.min(self.rows.saturating_sub(1));
+        self.scroll_bottom = restore
+            .scroll_bottom
+            .min(self.rows.saturating_sub(1))
+            .max(self.scroll_top);
+        self.origin_mode = restore.origin_mode;
+        self.last_printed = None;
         self.inactive = Some(active_snapshot);
     }
 
@@ -373,7 +481,7 @@ impl Grid {
                 &mut self.cells,
                 &mut self.wrapped_view,
                 &mut self.cursor,
-                &mut self.saved_cursor,
+                self.saved_cursor.as_mut().map(|s| &mut s.cursor),
                 rows,
             );
             if !self.on_alt {
@@ -399,8 +507,8 @@ impl Grid {
                 self.wrapped_view.insert(0, w);
             }
             self.cursor.row += pull;
-            if let Some(c) = self.saved_cursor.as_mut() {
-                c.row += pull;
+            if let Some(s) = self.saved_cursor.as_mut() {
+                s.cursor.row += pull;
             }
             for _ in 0..(add - pull) {
                 self.cells.push(vec![Cell::default(); cols]);
@@ -416,7 +524,7 @@ impl Grid {
                     &mut inactive.cells,
                     &mut inactive.wrapped,
                     &mut inactive.cursor,
-                    &mut inactive.saved_cursor,
+                    inactive.saved_cursor.as_mut().map(|s| &mut s.cursor),
                     rows,
                 );
                 // Неактивный буфер при on_alt — основной экран: его строки — в историю.
@@ -442,6 +550,8 @@ impl Grid {
             inactive.cursor.row = inactive.cursor.row.min(rows - 1);
             inactive.cursor.col = inactive.cursor.col.min(cols - 1);
             inactive.cursor.wrap_pending = false;
+            inactive.scroll_top = 0;
+            inactive.scroll_bottom = rows - 1;
         }
         self.cols = cols;
         self.rows = rows;
@@ -450,9 +560,9 @@ impl Grid {
         self.cursor.row = self.cursor.row.min(rows - 1);
         self.cursor.col = self.cursor.col.min(cols - 1);
         self.cursor.wrap_pending = false;
-        if let Some(c) = self.saved_cursor.as_mut() {
-            c.row = c.row.min(rows - 1);
-            c.col = c.col.min(cols - 1);
+        if let Some(s) = self.saved_cursor.as_mut() {
+            s.cursor.row = s.cursor.row.min(rows - 1);
+            s.cursor.col = s.cursor.col.min(cols - 1);
         }
         self.revision += 1;
     }
@@ -469,40 +579,136 @@ impl Grid {
         self.wrapped_scrollback.push_back(wrapped);
     }
 
-    pub fn print(&mut self, ch: char) {
-        if self.cursor.wrap_pending {
-            let prev_row = self.cursor.row;
-            if prev_row < self.wrapped_view.len() {
-                self.wrapped_view[prev_row] = true;
+    fn blank_cell(&self) -> Cell {
+        Cell {
+            bg: self.current_attr.bg,
+            ..Cell::default()
+        }
+    }
+
+    /// Если в `(row, col)` лежит половина двухколоночного символа, зачищает
+    /// его парную ячейку, чтобы на экране не оставались «осиротевшие» половинки.
+    fn clear_wide_at(&mut self, row: usize, col: usize) {
+        if row >= self.rows || col >= self.cols {
+            return;
+        }
+        let flags = self.cells[row][col].flags;
+        if flags.contains(CellFlags::WIDE) && col + 1 < self.cols {
+            let next = &mut self.cells[row][col + 1];
+            if next.flags.contains(CellFlags::WIDE_SPACER) {
+                next.ch = ' ';
+                next.flags.remove(CellFlags::WIDE | CellFlags::WIDE_SPACER);
             }
-            self.lf();
-            self.cr();
+        } else if flags.contains(CellFlags::WIDE_SPACER) && col > 0 {
+            let prev = &mut self.cells[row][col - 1];
+            if prev.flags.contains(CellFlags::WIDE) {
+                prev.ch = ' ';
+                prev.flags.remove(CellFlags::WIDE | CellFlags::WIDE_SPACER);
+            }
+        }
+    }
+
+    pub fn print(&mut self, ch: char) {
+        let width = ch.width().unwrap_or(0);
+        if width == 0 {
+            return;
+        }
+        let w = if width >= 2 && self.cols >= 2 { 2 } else { 1 };
+
+        if self.cursor.wrap_pending {
+            if self.auto_wrap {
+                let prev_row = self.cursor.row;
+                if prev_row < self.wrapped_view.len() {
+                    self.wrapped_view[prev_row] = true;
+                }
+                self.lf();
+                self.cr();
+            }
             self.cursor.wrap_pending = false;
         }
+
         if self.cursor.col >= self.cols {
             self.cursor.col = self.cols - 1;
         }
-        let cell = Cell {
-            ch,
-            fg: self.current_attr.fg,
-            bg: self.current_attr.bg,
-            flags: self.current_attr.flags,
-            link_id: self.current_link_id,
-        };
+
+        // Двухколоночный глиф не помещается в последней колонке — переносим
+        // целиком на следующую строку, а последнюю ячейку текущей очищаем.
+        if w == 2 && self.cursor.col + 1 >= self.cols {
+            if self.auto_wrap {
+                let row = self.cursor.row;
+                let last = self.cols - 1;
+                self.clear_wide_at(row, last);
+                self.cells[row][last] = self.blank_cell();
+                if row < self.wrapped_view.len() {
+                    self.wrapped_view[row] = true;
+                }
+                self.lf();
+                self.cr();
+            } else {
+                self.cursor.col = self.cols - 2;
+            }
+        }
+
+        if self.insert_mode {
+            self.insert_chars(w);
+        }
+
         let row = self.cursor.row;
         let col = self.cursor.col;
+        let base_flags = self
+            .current_attr
+            .flags
+            .difference(CellFlags::WIDE | CellFlags::WIDE_SPACER);
+
         if row < self.rows && col < self.cols {
-            self.cells[row][col] = cell;
-            if col + 1 < self.cols {
+            self.clear_wide_at(row, col);
+            if w == 2 && col + 1 < self.cols {
+                self.clear_wide_at(row, col + 1);
+            }
+            self.cells[row][col] = Cell {
+                ch,
+                fg: self.current_attr.fg,
+                bg: self.current_attr.bg,
+                flags: if w == 2 {
+                    base_flags | CellFlags::WIDE
+                } else {
+                    base_flags
+                },
+                link_id: self.current_link_id,
+            };
+            if w == 2 && col + 1 < self.cols {
+                self.cells[row][col + 1] = Cell {
+                    ch: ' ',
+                    fg: self.current_attr.fg,
+                    bg: self.current_attr.bg,
+                    flags: base_flags | CellFlags::WIDE_SPACER,
+                    link_id: self.current_link_id,
+                };
+            }
+            if col + w < self.cols {
                 self.wrapped_view[row] = false;
             }
         }
-        if self.cursor.col + 1 >= self.cols {
-            self.cursor.wrap_pending = true;
+
+        self.last_printed = Some(ch);
+        if col + w >= self.cols {
+            self.cursor.col = self.cols - 1;
+            self.cursor.wrap_pending = self.auto_wrap;
         } else {
-            self.cursor.col += 1;
+            self.cursor.col = col + w;
         }
         self.revision += 1;
+    }
+
+    /// `CSI n b` (REP) — повторить последний напечатанный графический символ `n` раз.
+    pub fn repeat_char(&mut self, n: usize) {
+        let Some(ch) = self.last_printed else {
+            return;
+        };
+        let cap = self.cols.saturating_mul(self.rows).max(1);
+        for _ in 0..n.min(cap) {
+            self.print(ch);
+        }
     }
 
     pub fn lf(&mut self) {
@@ -510,6 +716,18 @@ impl Grid {
             self.scroll_up_region(1);
         } else if self.cursor.row + 1 < self.rows {
             self.cursor.row += 1;
+        }
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+
+    /// `ESC M` (RI — Reverse Index): сдвинуть курсор на строку вверх; если
+    /// курсор на верхней границе scroll region — прокрутить область вниз.
+    pub fn reverse_index(&mut self) {
+        if self.cursor.row == self.scroll_top {
+            self.scroll_down_region(1);
+        } else if self.cursor.row > 0 {
+            self.cursor.row -= 1;
         }
         self.cursor.wrap_pending = false;
         self.revision += 1;
@@ -543,8 +761,37 @@ impl Grid {
         self.revision += 1;
     }
 
+    /// Позиционирование с учётом DECOM (Origin Mode, `CSI ? 6 h`).
+    pub fn move_to_cup(&mut self, row: usize, col: usize) {
+        let target_row = if self.origin_mode {
+            self.scroll_top.saturating_add(row).min(self.scroll_bottom)
+        } else {
+            row.min(self.rows - 1)
+        };
+        self.cursor.row = target_row;
+        self.cursor.col = col.min(self.cols - 1);
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+
     pub fn move_relative(&mut self, drow: i32, dcol: i32) {
-        let new_row = (self.cursor.row as i32 + drow).clamp(0, self.rows as i32 - 1) as usize;
+        let new_row = if drow < 0 {
+            let min_row = if self.cursor.row >= self.scroll_top {
+                self.scroll_top as i32
+            } else {
+                0
+            };
+            (self.cursor.row as i32 + drow).max(min_row) as usize
+        } else if drow > 0 {
+            let max_row = if self.cursor.row <= self.scroll_bottom {
+                self.scroll_bottom as i32
+            } else {
+                self.rows as i32 - 1
+            };
+            (self.cursor.row as i32 + drow).min(max_row) as usize
+        } else {
+            self.cursor.row
+        };
         let new_col = (self.cursor.col as i32 + dcol).clamp(0, self.cols as i32 - 1) as usize;
         self.cursor.row = new_row;
         self.cursor.col = new_col;
@@ -553,14 +800,20 @@ impl Grid {
     }
 
     pub fn save_cursor(&mut self) {
-        self.saved_cursor = Some(self.cursor);
+        self.saved_cursor = Some(SavedCursor {
+            cursor: self.cursor,
+            attr: self.current_attr,
+            origin_mode: self.origin_mode,
+        });
     }
 
     pub fn restore_cursor(&mut self) {
-        if let Some(c) = self.saved_cursor {
-            self.cursor = c;
+        if let Some(saved) = self.saved_cursor {
+            self.cursor = saved.cursor;
             self.cursor.row = self.cursor.row.min(self.rows - 1);
             self.cursor.col = self.cursor.col.min(self.cols - 1);
+            self.current_attr = saved.attr;
+            self.origin_mode = saved.origin_mode;
             self.revision += 1;
         }
     }
@@ -575,21 +828,158 @@ impl Grid {
             self.scroll_top = 0;
             self.scroll_bottom = self.rows - 1;
         }
+        // По спецификации VT100/xterm DECSTBM всегда возвращает курсор в начало.
+        self.cursor.row = if self.origin_mode { self.scroll_top } else { 0 };
+        self.cursor.col = 0;
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+
+    /// `CSI n L` (IL — Insert Lines): вставить `n` пустых строк на текущей
+    /// строке внутри scroll region, сдвинув нижние строки вниз.
+    pub fn insert_lines(&mut self, n: usize) {
+        if self.cursor.row < self.scroll_top || self.cursor.row > self.scroll_bottom || n == 0 {
+            return;
+        }
+        let row = self.cursor.row;
+        let bottom = self.scroll_bottom;
+        let n = n.min(bottom - row + 1);
+        let blank = self.blank_cell();
+        for _ in 0..n {
+            let _ = self.cells.remove(bottom);
+            if bottom < self.wrapped_view.len() {
+                let _ = self.wrapped_view.remove(bottom);
+            }
+            self.cells.insert(row, vec![blank; self.cols]);
+            if row <= self.wrapped_view.len() {
+                self.wrapped_view.insert(row, false);
+            } else {
+                self.wrapped_view.push(false);
+            }
+        }
+        self.cursor.col = 0;
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+
+    /// `CSI n M` (DL — Delete Lines): удалить `n` строк начиная с текущей
+    /// внутри scroll region, сдвинув нижние строки вверх.
+    pub fn delete_lines(&mut self, n: usize) {
+        if self.cursor.row < self.scroll_top || self.cursor.row > self.scroll_bottom || n == 0 {
+            return;
+        }
+        let row = self.cursor.row;
+        let bottom = self.scroll_bottom;
+        let n = n.min(bottom - row + 1);
+        let blank = self.blank_cell();
+        for _ in 0..n {
+            let _ = self.cells.remove(row);
+            if row < self.wrapped_view.len() {
+                let _ = self.wrapped_view.remove(row);
+            }
+            self.cells.insert(bottom, vec![blank; self.cols]);
+            if bottom <= self.wrapped_view.len() {
+                self.wrapped_view.insert(bottom, false);
+            } else {
+                self.wrapped_view.push(false);
+            }
+        }
+        self.cursor.col = 0;
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+
+    /// `CSI n @` (ICH — Insert Blank Characters): вставить `n` пробелов в
+    /// позиции курсора со сдвигом хвоста строки вправо.
+    pub fn insert_chars(&mut self, n: usize) {
+        let r = self.cursor.row;
+        let c = self.cursor.col;
+        if r >= self.rows || c >= self.cols || n == 0 {
+            return;
+        }
+        let n = n.min(self.cols - c);
+        let blank = self.blank_cell();
+        self.clear_wide_at(r, c);
+        let row = &mut self.cells[r];
+        row.copy_within(c..(self.cols - n), c + n);
+        for cell in &mut row[c..(c + n)] {
+            *cell = blank;
+        }
+        // Если двухколоночный символ оказался разрезан правым краем — очищаем.
+        if row[self.cols - 1].flags.contains(CellFlags::WIDE) {
+            row[self.cols - 1] = blank;
+        }
+        if r < self.wrapped_view.len() {
+            self.wrapped_view[r] = false;
+        }
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+
+    /// `CSI n P` (DCH — Delete Characters): удалить `n` символов в позиции
+    /// курсора со сдвигом хвоста строки влево.
+    pub fn delete_chars(&mut self, n: usize) {
+        let r = self.cursor.row;
+        let c = self.cursor.col;
+        if r >= self.rows || c >= self.cols || n == 0 {
+            return;
+        }
+        let n = n.min(self.cols - c);
+        let blank = self.blank_cell();
+        self.clear_wide_at(r, c);
+        if c + n < self.cols {
+            self.clear_wide_at(r, c + n);
+        }
+        let row = &mut self.cells[r];
+        row.copy_within((c + n)..self.cols, c);
+        for cell in &mut row[(self.cols - n)..self.cols] {
+            *cell = blank;
+        }
+        if r < self.wrapped_view.len() {
+            self.wrapped_view[r] = false;
+        }
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+
+    /// `CSI n X` (ECH — Erase Characters): очистить `n` ячеек начиная с
+    /// позиции курсора без его перемещения.
+    pub fn erase_chars(&mut self, n: usize) {
+        let r = self.cursor.row;
+        let c = self.cursor.col;
+        if r >= self.rows || c >= self.cols || n == 0 {
+            return;
+        }
+        let end = (c + n).min(self.cols);
+        let blank = self.blank_cell();
+        self.clear_wide_at(r, c);
+        if end < self.cols {
+            self.clear_wide_at(r, end);
+        } else {
+            self.clear_wide_at(r, self.cols - 1);
+        }
+        for cell in &mut self.cells[r][c..end] {
+            *cell = blank;
+        }
+        self.cursor.wrap_pending = false;
         self.revision += 1;
     }
 
     pub fn erase_display(&mut self, mode: u16) {
-        let blank = Cell {
-            bg: self.current_attr.bg,
-            ..Cell::default()
-        };
+        let blank = self.blank_cell();
         match mode {
             0 => {
                 let r = self.cursor.row;
                 let c = self.cursor.col;
                 if r < self.rows {
+                    if c < self.cols {
+                        self.clear_wide_at(r, c);
+                    }
                     for col in c..self.cols {
                         self.cells[r][col] = blank;
+                    }
+                    if r < self.wrapped_view.len() {
+                        self.wrapped_view[r] = false;
                     }
                     for row in (r + 1)..self.rows {
                         for col in 0..self.cols {
@@ -613,12 +1003,14 @@ impl Grid {
                     }
                 }
                 if r < self.rows {
-                    for col in 0..=c.min(self.cols - 1) {
+                    let end = c.min(self.cols - 1);
+                    self.clear_wide_at(r, end);
+                    for col in 0..=end {
                         self.cells[r][col] = blank;
                     }
                 }
             }
-            _ => {
+            2 => {
                 for row in 0..self.rows {
                     for col in 0..self.cols {
                         self.cells[row][col] = blank;
@@ -628,22 +1020,29 @@ impl Grid {
                     *w = false;
                 }
             }
+            3 => {
+                self.scrollback.clear();
+                self.wrapped_scrollback.clear();
+            }
+            _ => {}
         }
+        self.cursor.wrap_pending = false;
         self.revision += 1;
     }
 
     pub fn erase_line(&mut self, mode: u16) {
-        let blank = Cell {
-            bg: self.current_attr.bg,
-            ..Cell::default()
-        };
+        let blank = self.blank_cell();
         let r = self.cursor.row;
         if r >= self.rows {
             return;
         }
         match mode {
             0 => {
-                for col in self.cursor.col..self.cols {
+                let c = self.cursor.col;
+                if c < self.cols {
+                    self.clear_wide_at(r, c);
+                }
+                for col in c..self.cols {
                     self.cells[r][col] = blank;
                 }
                 if r < self.wrapped_view.len() {
@@ -651,11 +1050,13 @@ impl Grid {
                 }
             }
             1 => {
-                for col in 0..=self.cursor.col.min(self.cols - 1) {
+                let end = self.cursor.col.min(self.cols - 1);
+                self.clear_wide_at(r, end);
+                for col in 0..=end {
                     self.cells[r][col] = blank;
                 }
             }
-            _ => {
+            2 => {
                 for col in 0..self.cols {
                     self.cells[r][col] = blank;
                 }
@@ -663,7 +1064,9 @@ impl Grid {
                     self.wrapped_view[r] = false;
                 }
             }
+            _ => {}
         }
+        self.cursor.wrap_pending = false;
         self.revision += 1;
     }
 
@@ -673,6 +1076,7 @@ impl Grid {
         let n = n.min(bottom - top + 1);
         let full_screen = top == 0 && bottom == self.rows - 1;
         let push_to_scrollback = full_screen && !self.on_alt;
+        let blank = self.blank_cell();
         for _ in 0..n {
             let line = self.cells.remove(top);
             let wrapped = if top < self.wrapped_view.len() {
@@ -683,7 +1087,7 @@ impl Grid {
             if push_to_scrollback {
                 self.push_scrollback_with_wrap(line, wrapped);
             }
-            self.cells.insert(bottom, vec![Cell::default(); self.cols]);
+            self.cells.insert(bottom, vec![blank; self.cols]);
             if bottom <= self.wrapped_view.len() {
                 self.wrapped_view.insert(bottom, false);
             } else {
@@ -697,12 +1101,13 @@ impl Grid {
         let top = self.scroll_top;
         let bottom = self.scroll_bottom;
         let n = n.min(bottom - top + 1);
+        let blank = self.blank_cell();
         for _ in 0..n {
             let _ = self.cells.remove(bottom);
             if bottom < self.wrapped_view.len() {
                 let _ = self.wrapped_view.remove(bottom);
             }
-            self.cells.insert(top, vec![Cell::default(); self.cols]);
+            self.cells.insert(top, vec![blank; self.cols]);
             if top <= self.wrapped_view.len() {
                 self.wrapped_view.insert(top, false);
             } else {
@@ -720,7 +1125,7 @@ fn shrink_rows(
     cells: &mut Vec<Vec<Cell>>,
     wrapped: &mut Vec<bool>,
     cursor: &mut Cursor,
-    saved: &mut Option<Cursor>,
+    saved: Option<&mut Cursor>,
     rows: usize,
 ) -> (Vec<(Vec<Cell>, bool)>, usize) {
     let cur_len = cells.len();
@@ -736,7 +1141,7 @@ fn shrink_rows(
     let lines: Vec<Vec<Cell>> = cells.drain(..drop).collect();
     let ws: Vec<bool> = wrapped.drain(..drop.min(wrapped.len())).collect();
     cursor.row = cursor.row.saturating_sub(drop);
-    if let Some(c) = saved.as_mut() {
+    if let Some(c) = saved {
         c.row = c.row.saturating_sub(drop);
     }
     let out = lines

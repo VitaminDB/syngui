@@ -6,11 +6,20 @@ use super::mouse::{MouseEncoding, MouseMode};
 pub struct Performer<'a> {
     pub grid: &'a mut Grid,
     pub title: &'a mut Option<String>,
+    replies: Vec<Vec<u8>>,
 }
 
 impl<'a> Performer<'a> {
     pub fn new(grid: &'a mut Grid, title: &'a mut Option<String>) -> Self {
-        Self { grid, title }
+        Self {
+            grid,
+            title,
+            replies: Vec::new(),
+        }
+    }
+
+    pub fn take_replies(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.replies)
     }
 }
 
@@ -85,59 +94,109 @@ impl<'a> Perform for Performer<'a> {
     fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
         let priv_marker = intermediates.first().copied();
         match action {
-            'A' => self.grid.move_relative(-(nth(params, 0, 1) as i32), 0),
-            'B' | 'e' => self.grid.move_relative(nth(params, 0, 1) as i32, 0),
-            'C' | 'a' => self.grid.move_relative(0, nth(params, 0, 1) as i32),
-            'D' => self.grid.move_relative(0, -(nth(params, 0, 1) as i32)),
-            'E' => {
+            'A' if intermediates.is_empty() => {
+                self.grid.move_relative(-(nth(params, 0, 1) as i32), 0)
+            }
+            'B' | 'e' if intermediates.is_empty() => {
+                self.grid.move_relative(nth(params, 0, 1) as i32, 0)
+            }
+            'C' | 'a' if intermediates.is_empty() => {
+                self.grid.move_relative(0, nth(params, 0, 1) as i32)
+            }
+            'D' if intermediates.is_empty() => {
+                self.grid.move_relative(0, -(nth(params, 0, 1) as i32))
+            }
+            'E' if intermediates.is_empty() => {
                 let n = nth(params, 0, 1) as i32;
                 self.grid.move_relative(n, 0);
                 self.grid.cr();
             }
-            'F' => {
+            'F' if intermediates.is_empty() => {
                 let n = nth(params, 0, 1) as i32;
                 self.grid.move_relative(-n, 0);
                 self.grid.cr();
             }
-            'G' | '`' => {
+            'G' | '`' if intermediates.is_empty() => {
                 let col = nth(params, 0, 1).saturating_sub(1) as usize;
                 let row = self.grid.cursor().row;
                 self.grid.move_to(row, col);
             }
-            'd' => {
+            'd' if intermediates.is_empty() => {
                 let row = nth(params, 0, 1).saturating_sub(1) as usize;
                 let col = self.grid.cursor().col;
-                self.grid.move_to(row, col);
+                self.grid.move_to_cup(row, col);
             }
-            'H' | 'f' => {
+            'H' | 'f' if intermediates.is_empty() => {
                 let row = nth(params, 0, 1).saturating_sub(1) as usize;
                 let col = nth(params, 1, 1).saturating_sub(1) as usize;
-                self.grid.move_to(row, col);
+                self.grid.move_to_cup(row, col);
             }
-            'J' => {
+            'J' if intermediates.is_empty() => {
                 let mode = nth_raw(params, 0, 0);
                 self.grid.erase_display(mode);
             }
-            'K' => {
+            'K' if intermediates.is_empty() => {
                 let mode = nth_raw(params, 0, 0);
                 self.grid.erase_line(mode);
             }
-            'S' => self.grid.scroll_up_region(nth(params, 0, 1) as usize),
-            'T' => self.grid.scroll_down_region(nth(params, 0, 1) as usize),
-            'r' => {
+            'L' if intermediates.is_empty() => {
+                self.grid.insert_lines(nth(params, 0, 1) as usize);
+            }
+            'M' if intermediates.is_empty() => {
+                self.grid.delete_lines(nth(params, 0, 1) as usize);
+            }
+            '@' if intermediates.is_empty() => {
+                self.grid.insert_chars(nth(params, 0, 1) as usize);
+            }
+            'P' if intermediates.is_empty() => {
+                self.grid.delete_chars(nth(params, 0, 1) as usize);
+            }
+            'X' if intermediates.is_empty() => {
+                self.grid.erase_chars(nth(params, 0, 1) as usize);
+            }
+            'b' if intermediates.is_empty() => {
+                self.grid.repeat_char(nth(params, 0, 1) as usize);
+            }
+            'S' if intermediates.is_empty() => {
+                self.grid.scroll_up_region(nth(params, 0, 1) as usize)
+            }
+            'T' if intermediates.is_empty() && params.len() <= 1 => {
+                self.grid.scroll_down_region(nth(params, 0, 1) as usize)
+            }
+            'r' if intermediates.is_empty() => {
                 let top = nth(params, 0, 1).saturating_sub(1) as usize;
                 let bottom = nth(params, 1, self.grid.rows() as u16).saturating_sub(1) as usize;
                 self.grid.set_scroll_region(top, bottom);
             }
-            's' => self.grid.save_cursor(),
-            'u' => self.grid.restore_cursor(),
-            'm' => apply_sgr(self.grid, params),
+            's' if intermediates.is_empty() && params.is_empty() => self.grid.save_cursor(),
+            'u' if intermediates.is_empty() && params.is_empty() => self.grid.restore_cursor(),
+            'm' if intermediates.is_empty() => apply_sgr(self.grid, params),
+            'n' if intermediates.is_empty() => match nth_raw(params, 0, 0) {
+                5 => self.replies.push(b"\x1b[0n".to_vec()),
+                6 => {
+                    let c = self.grid.cursor();
+                    self.replies
+                        .push(format!("\x1b[{};{}R", c.row + 1, c.col + 1).into_bytes());
+                }
+                _ => {}
+            },
+            'c' if intermediates.is_empty() && nth_raw(params, 0, 0) == 0 => {
+                // VT220-совместимый ответ на Primary DA.
+                self.replies.push(b"\x1b[?62;c".to_vec());
+            }
             'h' | 'l' => {
+                let on = action == 'h';
                 if priv_marker == Some(b'?') {
-                    let on = action == 'h';
                     for p in params.iter() {
                         let mode = p.first().copied().unwrap_or(0);
                         apply_dec_mode(self.grid, mode, on);
+                    }
+                } else if intermediates.is_empty() {
+                    for p in params.iter() {
+                        let mode = p.first().copied().unwrap_or(0);
+                        if mode == 4 {
+                            self.grid.set_insert_mode(on);
+                        }
                     }
                 }
             }
@@ -152,21 +211,13 @@ impl<'a> Perform for Performer<'a> {
         match byte {
             b'7' => self.grid.save_cursor(),
             b'8' => self.grid.restore_cursor(),
-            b'M' => {
-                if self.grid.cursor().row == 0 {
-                    self.grid.scroll_down_region(1);
-                } else {
-                    self.grid.move_relative(-1, 0);
-                }
-            }
-            b'D' => {
+            b'M' => self.grid.reverse_index(),
+            b'D' => self.grid.lf(),
+            b'E' => {
+                self.grid.cr();
                 self.grid.lf();
             }
-            b'c' => {
-                self.grid.set_attr(Attr::default());
-                self.grid.move_to(0, 0);
-                self.grid.erase_display(2);
-            }
+            b'c' => self.grid.reset(),
             _ => {}
         }
     }
@@ -425,10 +476,136 @@ mod tests {
         run(&mut g, b"\x1b[?1049l");
         assert_eq!(g.scrollback_len(), sb_main);
     }
+
+    fn row_str(g: &Grid, r: usize) -> String {
+        g.line(r)
+            .iter()
+            .filter(|c| !c.flags.contains(CellFlags::WIDE_SPACER))
+            .map(|c| c.ch)
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    /// Точная последовательность, которую `nano 9.3` шлёт при нажатии Enter
+    /// в середине строки: `ESC 7`, `CSI 3;22 r`, `ESC 8`, `\r`, `CSI 3 d`,
+    /// `ESC M` (Reverse Index на `scroll_top`), `CSI 1;24 r`, `CSI 2;7 H`,
+    /// `CSI K`, `\r`, `CSI 3 d`, `"world"`.
+    #[test]
+    fn nano_enter_splits_line_with_reverse_index_in_scroll_region() {
+        let mut g = Grid::new(40, 24);
+        run(&mut g, b"\x1b[?1049h\x1b[1;24r");
+        run(&mut g, b"\x1b[1;1HTITLE");
+        run(&mut g, b"\x1b[2;1Hhello world");
+        run(&mut g, b"\x1b[3;1Hsecond line");
+        run(&mut g, b"\x1b[2;7H");
+        // Реальная выдача nano при Enter между "hello " и "world":
+        run(
+            &mut g,
+            b"\x1b7\x1b[3;22r\x1b8\r\x1b[3d\x1bM\x1b[1;24r\x1b[2;7H\x1b[K\r\x1b[3dworld\r",
+        );
+        assert_eq!(row_str(&g, 0), "TITLE");
+        assert_eq!(row_str(&g, 1), "hello");
+        assert_eq!(row_str(&g, 2), "world");
+        assert_eq!(row_str(&g, 3), "second line");
+    }
+
+    #[test]
+    fn csi_insert_and_delete_lines_respect_scroll_region() {
+        let mut g = Grid::new(20, 6);
+        run(&mut g, b"R0\r\nR1\r\nR2\r\nR3\r\nR4\r\nR5");
+        run(&mut g, b"\x1b[2;5r"); // rows 1..=4, курсор уходит в (0,0)
+        assert_eq!((g.cursor().row, g.cursor().col), (0, 0));
+        run(&mut g, b"\x1b[3;2H\x1b[1L"); // insert 1 line at row 2
+        assert_eq!(row_str(&g, 0), "R0");
+        assert_eq!(row_str(&g, 1), "R1");
+        assert_eq!(row_str(&g, 2), "");
+        assert_eq!(row_str(&g, 3), "R2");
+        assert_eq!(row_str(&g, 4), "R3");
+        assert_eq!(row_str(&g, 5), "R5");
+        assert_eq!(g.cursor().col, 0);
+
+        run(&mut g, b"\x1b[3;1H\x1b[1M"); // delete 1 line at row 2
+        assert_eq!(row_str(&g, 2), "R2");
+        assert_eq!(row_str(&g, 3), "R3");
+        assert_eq!(row_str(&g, 4), "");
+        assert_eq!(row_str(&g, 5), "R5");
+    }
+
+    #[test]
+    fn csi_ich_dch_ech_rep_and_irm() {
+        let mut g = Grid::new(20, 3);
+        run(&mut g, b"abcdef");
+        // DCH: удалить 2 символа начиная с col 2 ('c','d')
+        run(&mut g, b"\x1b[1;3H\x1b[2P");
+        assert_eq!(row_str(&g, 0), "abef");
+        // ICH: вставить 2 пробела в col 2
+        run(&mut g, b"\x1b[1;3H\x1b[2@");
+        assert_eq!(row_str(&g, 0), "ab  ef");
+        // ECH: затереть 3 символа начиная с col 1 без сдвига курсора
+        run(&mut g, b"\x1b[1;2H\x1b[3X");
+        assert_eq!(row_str(&g, 0), "a   ef");
+        assert_eq!(g.cursor().col, 1);
+        // REP: повторить '-' 4 раза (1 + 3)
+        run(&mut g, b"\x1b[2;1H-\x1b[3b");
+        assert_eq!(row_str(&g, 1), "----");
+        // IRM (CSI 4 h/l): вставка в середину сдвигает хвост вправо
+        run(&mut g, b"\x1b[3;1Hac\x1b[3;2H\x1b[4hb\x1b[4l");
+        assert_eq!(row_str(&g, 2), "abc");
+    }
+
+    #[test]
+    fn csi_3j_clears_only_scrollback_not_viewport() {
+        let mut g = Grid::new(10, 2);
+        run(&mut g, b"line1\r\nline2\r\nline3");
+        assert_eq!(g.scrollback_len(), 1);
+        run(&mut g, b"\x1b[3J");
+        assert_eq!(g.scrollback_len(), 0);
+        assert_eq!(row_str(&g, 0), "line2");
+        assert_eq!(row_str(&g, 1), "line3");
+    }
+
+    #[test]
+    fn wide_emoji_and_variation_selector_align_columns() {
+        let mut g = Grid::new(20, 2);
+        // 📎 (width 2) + VS16 (\u{FE0F}, width 0) + "1 media"
+        run(&mut g, "\u{1F4CE}\u{FE0F}1 media".as_bytes());
+        assert_eq!(g.line(0)[0].ch, '\u{1F4CE}');
+        assert!(g.line(0)[0].flags.contains(CellFlags::WIDE));
+        assert!(g.line(0)[1].flags.contains(CellFlags::WIDE_SPACER));
+        assert_eq!(g.line(0)[2].ch, '1');
+        assert_eq!(row_str(&g, 0), "\u{1F4CE}1 media");
+
+        // Перезапись правой половины широкого глифа очищает левую половину.
+        run(&mut g, b"\x1b[1;2HX");
+        assert_eq!(g.line(0)[0].ch, ' ');
+        assert!(!g.line(0)[0].flags.contains(CellFlags::WIDE));
+        assert_eq!(g.line(0)[1].ch, 'X');
+    }
+
+    #[test]
+    fn dec_modes_and_cpr_reply_and_modify_other_keys_ignored() {
+        let mut g = Grid::new(20, 5);
+        let mut parser = Parser::new();
+        let mut title = None;
+        let mut perf = Performer::new(&mut g, &mut title);
+        // CSI > 4 ; 2 m (modifyOtherKeys) не должен включать UNDERLINE/FAINT
+        for b in b"\x1b[?1h\x1b[?2026h\x1b[>4;2m\x1b[3;5H\x1b[6nX\x1b[?2026l" {
+            parser.advance(&mut perf, *b);
+        }
+        assert_eq!(perf.take_replies(), vec![b"\x1b[3;5R".to_vec()]);
+        assert!(g.app_cursor());
+        assert!(!g.sync_update());
+        assert!(g.line(2)[4].flags.is_empty());
+        assert_eq!(g.line(2)[4].ch, 'X');
+    }
 }
 
 fn apply_dec_mode(grid: &mut Grid, mode: u16, on: bool) {
     match mode {
+        1 => grid.set_app_cursor(on),
+        6 => grid.set_origin_mode(on),
+        7 => grid.set_auto_wrap(on),
         25 => grid.set_cursor_visible(on),
 
         9 => {
@@ -481,6 +658,7 @@ fn apply_dec_mode(grid: &mut Grid, mode: u16, on: bool) {
         }
 
         2004 => grid.set_bracketed_paste(on),
+        2026 => grid.set_sync_update(on),
 
         1007 => grid.set_alt_scroll(on),
 

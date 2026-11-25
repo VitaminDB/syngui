@@ -459,9 +459,15 @@ impl Element for TerminalElement {
                 && s.grid.cursor_visible()
             {
                 let cursor = s.grid.cursor();
+                let is_wide = s
+                    .grid
+                    .line(cursor.row)
+                    .get(cursor.col)
+                    .is_some_and(|c| c.flags.contains(CellFlags::WIDE));
                 let x = origin.x + cursor.col as f32 * cell_w;
                 let y = origin.y + cursor.row as f32 * cell_h;
-                let cursor_rect = Rect::new(Point::new(x, y), Size::new(cell_w, cell_h));
+                let cursor_w = if is_wide { cell_w * 2.0 } else { cell_w };
+                let cursor_rect = Rect::new(Point::new(x, y), Size::new(cursor_w, cell_h));
                 let cursor_color = self.mss.accent_color.unwrap_or(default_fg);
                 list.push_rect(cursor_rect, cursor_color.with_alpha(0.45), [0.0; 4]);
             }
@@ -636,7 +642,12 @@ impl Element for TerminalElement {
                     self.reset_scroll_offset_if_any(ctx);
                     return EventResult::Handled;
                 }
-                if let Some(bytes) = kb::map_key(*key, mods) {
+                let app_cursor = self
+                    .session
+                    .as_ref()
+                    .map(|s| s.with_state_ref(|st| st.grid.app_cursor()))
+                    .unwrap_or(false);
+                if let Some(bytes) = kb::map_key_with_mode(*key, mods, app_cursor) {
                     self.clear_selection_if_any(ctx);
                     self.write_pty(&bytes);
                     self.reset_scroll_offset_if_any(ctx);
@@ -652,6 +663,9 @@ impl Element for TerminalElement {
                     .unwrap_or(false);
                 if !focused {
                     return EventResult::Ignored;
+                }
+                if c.is_control() {
+                    return EventResult::Handled;
                 }
                 let mods = ctx.modifiers;
                 if mods.ctrl && c.is_ascii_alphabetic() {
@@ -1357,7 +1371,11 @@ impl TerminalElement {
     ) {
         let y = origin.y + row_in_view as f32 * cell_h;
 
-        let row_text: String = cells.iter().map(|c| c.ch).collect();
+        let row_text: String = cells
+            .iter()
+            .filter(|c| !c.flags.contains(CellFlags::WIDE_SPACER))
+            .map(|c| c.ch)
+            .collect();
         let bbox_sample: &str = if row_text.trim().is_empty() {
             "Mgyqlj"
         } else {
@@ -1402,7 +1420,7 @@ impl TerminalElement {
 
         let mut buf = String::with_capacity(4);
         for (col, cell) in cells.iter().enumerate() {
-            if cell.ch == ' ' && cell.flags.is_empty() {
+            if cell.ch == ' ' || cell.flags.contains(CellFlags::WIDE_SPACER) {
                 continue;
             }
             let mut fg = palette::resolve(
@@ -1434,9 +1452,14 @@ impl TerminalElement {
                 400
             };
 
+            let w = if cell.flags.contains(CellFlags::WIDE) {
+                cell_w * 2.0
+            } else {
+                cell_w
+            };
             let rect = Rect::new(
                 Point::new(origin.x + col as f32 * cell_w, y),
-                Size::new(cell_w, cell_h),
+                Size::new(w, cell_h),
             );
             buf.clear();
             buf.push(cell.ch);

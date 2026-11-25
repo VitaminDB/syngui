@@ -51,7 +51,7 @@ pub(super) fn map_key_code(code: winit::keyboard::KeyCode) -> Key {
         KeyCode::Digit8 => Key::Num8,
         KeyCode::Digit9 => Key::Num9,
         KeyCode::Escape => Key::Escape,
-        KeyCode::Enter => Key::Enter,
+        KeyCode::Enter | KeyCode::NumpadEnter => Key::Enter,
         KeyCode::Tab => Key::Tab,
         KeyCode::Backspace => Key::Backspace,
         KeyCode::Delete => Key::Delete,
