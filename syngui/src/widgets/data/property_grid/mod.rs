@@ -8,6 +8,8 @@ use std::sync::Arc;
 #[derive(Clone, Debug)]
 pub enum PropertyValue {
     Text(String),
+    /// Многострочный текст: перенос по ширине, Enter — новая строка, Ctrl+Enter — применить.
+    Multiline(String),
     Number(f64),
     Bool(bool),
     Color(Color),
@@ -23,7 +25,7 @@ pub enum PropertyValue {
 impl PropertyValue {
     fn display(&self) -> String {
         match self {
-            PropertyValue::Text(s) => s.clone(),
+            PropertyValue::Text(s) | PropertyValue::Multiline(s) => s.clone(),
             PropertyValue::Number(n) => {
                 if *n == (*n as i64) as f64 {
                     format!("{}", *n as i64)
@@ -72,6 +74,16 @@ impl Property {
         Self {
             name: name.into(),
             value: PropertyValue::Text(value.into()),
+            mark: None,
+        }
+    }
+
+    /// Многострочное текстовое поле: растёт по числу строк, перенос по словам,
+    /// `Enter` — новая строка, `Ctrl+Enter` или клик вне — завершить правку.
+    pub fn multiline(name: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            value: PropertyValue::Multiline(value.into()),
             mark: None,
         }
     }
@@ -140,6 +152,7 @@ pub struct PropertyGrid {
     row_height: f32,
     width: Option<Dimension>,
     height: Option<Dimension>,
+    auto_height: bool,
     editable: bool,
     suggestions: Vec<String>,
 }
@@ -156,6 +169,7 @@ impl PropertyGrid {
             row_height: 32.0,
             width: None,
             height: None,
+            auto_height: false,
             editable: false,
             suggestions: Vec::new(),
         }
@@ -199,6 +213,13 @@ impl PropertyGrid {
 
     pub fn height(mut self, h: f32) -> Self {
         self.height = Some(Dimension::Px(h));
+        self
+    }
+
+    /// Высота сетки подстраивается под содержимое (удобно внутри `ScrollView`,
+    /// особенно когда есть многострочные поля переменной высоты).
+    pub fn auto_height(mut self, v: bool) -> Self {
+        self.auto_height = v;
         self
     }
 
