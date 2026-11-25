@@ -245,8 +245,11 @@ impl CommandPalette {
             let dismiss = dismiss.clone();
             move || {
                 let dismiss = dismiss.clone();
-                // пересоздаётся при каждом открытии: пустое поле в фокусе, свежий список
-                if open.get() {
+                // пересоздаётся при каждом открытии: пустое поле в фокусе, свежий список.
+                // Фокус — только у открытой: закрытая палитра со своим полем в фокусе
+                // забирала клавиатуру окна (Ctrl+Z, Ctrl+I уходили в скрытое поле).
+                let is_open = open.get();
+                if is_open {
                     snapshot.set_always(commands());
                     query.set(String::new());
                     selected.set(0);
@@ -254,7 +257,7 @@ impl CommandPalette {
                 let run = run.clone();
                 TextField::new()
                     .placeholder(placeholder.clone())
-                    .autofocus(true)
+                    .autofocus(is_open)
                     .on_change(move |q: &str| {
                         query.set(q.to_string());
                         selected.set(0);
