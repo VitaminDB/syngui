@@ -125,6 +125,8 @@ pub struct Grid {
     auto_wrap: bool,
     /// Synchronized Output (`CSI ? 2026 h/l`): буферизация перерисовки кадра.
     sync_update: bool,
+    /// Табуляции (`ESC H` HTS, `CSI g` TBC, `CSI ? 5 W` DECST8C): по умолчанию каждые 8 колонок.
+    tab_stops: Vec<bool>,
     /// Последний напечатанный графический символ (для `CSI n b` REP).
     last_printed: Option<char>,
     current_link_id: Option<u32>,
@@ -163,6 +165,7 @@ impl Grid {
             origin_mode: false,
             auto_wrap: true,
             sync_update: false,
+            tab_stops: default_tab_stops(cols),
             last_printed: None,
             current_link_id: None,
             links: Vec::new(),
@@ -368,6 +371,7 @@ impl Grid {
         self.origin_mode = false;
         self.auto_wrap = true;
         self.sync_update = false;
+        self.tab_stops = default_tab_stops(self.cols);
         self.current_link_id = None;
         self.revision += 1;
     }
@@ -555,6 +559,15 @@ impl Grid {
         }
         self.cols = cols;
         self.rows = rows;
+        let old_len = self.tab_stops.len();
+        if cols > old_len {
+            self.tab_stops.resize(cols, false);
+            for c in old_len..cols {
+                self.tab_stops[c] = c > 0 && c % 8 == 0;
+            }
+        } else {
+            self.tab_stops.truncate(cols);
+        }
         self.scroll_top = 0;
         self.scroll_bottom = rows - 1;
         self.cursor.row = self.cursor.row.min(rows - 1);
@@ -748,10 +761,74 @@ impl Grid {
     }
 
     pub fn tab(&mut self) {
-        let next = ((self.cursor.col / 8) + 1) * 8;
-        self.cursor.col = next.min(self.cols.saturating_sub(1));
+        self.tab_forward(1);
+    }
+
+    /// `CSI n I` (CHT) и `\t` (HT): сдвиг на `n` позиций табуляции вправо.
+    pub fn tab_forward(&mut self, n: usize) {
+        let last = self.cols.saturating_sub(1);
+        let mut col = self.cursor.col;
+        for _ in 0..n.max(1) {
+            if col >= last {
+                col = last;
+                break;
+            }
+            let mut next = col + 1;
+            while next < last && !self.tab_stops.get(next).copied().unwrap_or(false) {
+                next += 1;
+            }
+            col = next;
+        }
+        self.cursor.col = col.min(last);
         self.cursor.wrap_pending = false;
         self.revision += 1;
+    }
+
+    /// `CSI n Z` (CBT): сдвиг на `n` позиций табуляции влево.
+    pub fn tab_backward(&mut self, n: usize) {
+        let mut col = self.cursor.col;
+        for _ in 0..n.max(1) {
+            if col == 0 {
+                break;
+            }
+            let mut prev = col - 1;
+            while prev > 0 && !self.tab_stops.get(prev).copied().unwrap_or(false) {
+                prev -= 1;
+            }
+            col = prev;
+        }
+        self.cursor.col = col;
+        self.cursor.wrap_pending = false;
+        self.revision += 1;
+    }
+
+    /// `ESC H` (HTS): поставить стоп табуляции в текущей колонке.
+    pub fn set_tab_stop(&mut self) {
+        if let Some(slot) = self.tab_stops.get_mut(self.cursor.col) {
+            *slot = true;
+        }
+    }
+
+    /// `CSI Ps g` (TBC): 0 — убрать стоп в текущей колонке, 3 — очистить все стопы.
+    pub fn clear_tab_stop(&mut self, mode: u16) {
+        match mode {
+            0 => {
+                if let Some(slot) = self.tab_stops.get_mut(self.cursor.col) {
+                    *slot = false;
+                }
+            }
+            3 => {
+                for slot in self.tab_stops.iter_mut() {
+                    *slot = false;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `CSI ? 5 W` (DECST8C): сбросить стопы табуляции на каждые 8 колонок.
+    pub fn reset_tab_stops(&mut self) {
+        self.tab_stops = default_tab_stops(self.cols);
     }
 
     pub fn move_to(&mut self, row: usize, col: usize) {
@@ -1116,6 +1193,17 @@ impl Grid {
         }
         self.revision += 1;
     }
+}
+
+/// Стопы табуляции по умолчанию — каждые 8 колонок (8, 16, 24…).
+fn default_tab_stops(cols: usize) -> Vec<bool> {
+    let mut stops = vec![false; cols];
+    let mut c = 8;
+    while c < cols {
+        stops[c] = true;
+        c += 8;
+    }
+    stops
 }
 
 /// Уменьшить экран до `rows` строк: сначала убрать строки ниже курсора,

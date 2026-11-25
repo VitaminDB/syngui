@@ -40,6 +40,12 @@ fn nth_raw(params: &Params, idx: usize, default: u16) -> u16 {
         .unwrap_or(default)
 }
 
+/// В `vte 0.13` при отсутствии параметров (`\x1b[s`, `\x1b[u`) `CsiDispatch`
+/// всегда пушит `0`, поэтому `params.is_empty()` ложно. Проверяем оба вида.
+fn no_explicit_params(params: &Params) -> bool {
+    params.is_empty() || (params.len() == 1 && params.iter().next() == Some(&[0]))
+}
+
 impl<'a> Perform for Performer<'a> {
     fn print(&mut self, c: char) {
         self.grid.print(c);
@@ -157,6 +163,18 @@ impl<'a> Perform for Performer<'a> {
             'b' if intermediates.is_empty() => {
                 self.grid.repeat_char(nth(params, 0, 1) as usize);
             }
+            'I' if intermediates.is_empty() => {
+                self.grid.tab_forward(nth(params, 0, 1) as usize);
+            }
+            'Z' if intermediates.is_empty() => {
+                self.grid.tab_backward(nth(params, 0, 1) as usize);
+            }
+            'g' if intermediates.is_empty() => {
+                self.grid.clear_tab_stop(nth_raw(params, 0, 0));
+            }
+            'W' if intermediates == b"?" && nth_raw(params, 0, 0) == 5 => {
+                self.grid.reset_tab_stops();
+            }
             'S' if intermediates.is_empty() => {
                 self.grid.scroll_up_region(nth(params, 0, 1) as usize)
             }
@@ -168,8 +186,12 @@ impl<'a> Perform for Performer<'a> {
                 let bottom = nth(params, 1, self.grid.rows() as u16).saturating_sub(1) as usize;
                 self.grid.set_scroll_region(top, bottom);
             }
-            's' if intermediates.is_empty() && params.is_empty() => self.grid.save_cursor(),
-            'u' if intermediates.is_empty() && params.is_empty() => self.grid.restore_cursor(),
+            's' if intermediates.is_empty() && no_explicit_params(params) => {
+                self.grid.save_cursor()
+            }
+            'u' if intermediates.is_empty() && no_explicit_params(params) => {
+                self.grid.restore_cursor()
+            }
             'm' if intermediates.is_empty() => apply_sgr(self.grid, params),
             'n' if intermediates.is_empty() => match nth_raw(params, 0, 0) {
                 5 => self.replies.push(b"\x1b[0n".to_vec()),
@@ -183,6 +205,22 @@ impl<'a> Perform for Performer<'a> {
             'c' if intermediates.is_empty() && nth_raw(params, 0, 0) == 0 => {
                 // VT220-совместимый ответ на Primary DA.
                 self.replies.push(b"\x1b[?62;c".to_vec());
+            }
+            'c' if intermediates == b">" && nth_raw(params, 0, 0) == 0 => {
+                // Secondary DA (DA2).
+                self.replies.push(b"\x1b[>0;0;0c".to_vec());
+            }
+            'q' if intermediates == b">" && nth_raw(params, 0, 0) == 0 => {
+                // XTVERSION: мгновенный ответ без ожидания таймаута в TUI.
+                self.replies.push(b"\x1bP>|syngui\x1b\\".to_vec());
+            }
+            'p' if intermediates == b"?$" => {
+                // DECRQM (CSI ? Ps $ p): ответ DECRPM (CSI ? Ps ; Pm $ y).
+                // Pm: 0 = не распознан, 1 = включён, 2 = выключен.
+                let mode = nth_raw(params, 0, 0);
+                let status = query_dec_mode(self.grid, mode);
+                self.replies
+                    .push(format!("\x1b[?{mode};{status}$y").into_bytes());
             }
             'h' | 'l' => {
                 let on = action == 'h';
@@ -211,6 +249,7 @@ impl<'a> Perform for Performer<'a> {
         match byte {
             b'7' => self.grid.save_cursor(),
             b'8' => self.grid.restore_cursor(),
+            b'H' => self.grid.set_tab_stop(),
             b'M' => self.grid.reverse_index(),
             b'D' => self.grid.lf(),
             b'E' => {
@@ -598,6 +637,74 @@ mod tests {
         assert!(!g.sync_update());
         assert!(g.line(2)[4].flags.is_empty());
         assert_eq!(g.line(2)[4].ch, 'X');
+    }
+
+    #[test]
+    fn csi_cht_cbt_tab_stops_and_scosc_scorc() {
+        let mut g = Grid::new(40, 5);
+        // CHT: 3 таба вперёд → col 24; CBT: 2 таба назад от col 26 → col 16.
+        run(&mut g, b"\x1b[3Iab\x1b[2ZXY");
+        assert_eq!(g.line(0)[24].ch, 'a');
+        assert_eq!(g.line(0)[25].ch, 'b');
+        assert_eq!(g.line(0)[16].ch, 'X');
+        assert_eq!(g.line(0)[17].ch, 'Y');
+
+        // Пользовательский стоп табуляции (TBC 3 + HTS на col 5), затем DECST8C.
+        run(&mut g, b"\x1b[2;1H\x1b[3g\x1b[6G\x1bH\r\tA");
+        assert_eq!(g.line(1)[5].ch, 'A');
+        run(&mut g, b"\x1b[?5W\r\tB");
+        assert_eq!(g.line(1)[8].ch, 'B');
+
+        // CSI s / CSI u (в vte params не пуст — содержит [[0]]).
+        run(&mut g, b"\x1b[3;5H\x1b[s\x1b[4;20H\x1b[uZ");
+        assert_eq!(g.line(2)[4].ch, 'Z');
+    }
+
+    #[test]
+    fn decrqm_and_xtversion_and_da2_replies() {
+        let mut g = Grid::new(80, 24);
+        let mut parser = Parser::new();
+        let mut title = None;
+        let mut perf = Performer::new(&mut g, &mut title);
+        for b in b"\x1b[>q\x1b[>c\x1b[?2026$p\x1b[?2026h\x1b[?2026$p\x1b[?2027$p" {
+            parser.advance(&mut perf, *b);
+        }
+        assert_eq!(
+            perf.take_replies(),
+            vec![
+                b"\x1bP>|syngui\x1b\\".to_vec(),
+                b"\x1b[>0;0;0c".to_vec(),
+                b"\x1b[?2026;2$y".to_vec(),
+                b"\x1b[?2026;1$y".to_vec(),
+                b"\x1b[?2027;0$y".to_vec(),
+            ]
+        );
+    }
+}
+
+fn query_dec_mode(grid: &Grid, mode: u16) -> u8 {
+    let flag = match mode {
+        1 => Some(grid.app_cursor()),
+        6 => Some(grid.origin_mode()),
+        7 => Some(grid.auto_wrap()),
+        25 => Some(grid.cursor_visible()),
+        1000 => Some(grid.mouse_mode() == MouseMode::Normal),
+        1002 => Some(grid.mouse_mode() == MouseMode::ButtonEvent),
+        1003 => Some(grid.mouse_mode() == MouseMode::AnyEvent),
+        1004 => Some(grid.focus_events()),
+        1006 => Some(grid.mouse_encoding() == MouseEncoding::Sgr),
+        1007 => Some(grid.alt_scroll()),
+        1047 | 1049 => Some(grid.on_alt()),
+        2004 => Some(grid.bracketed_paste()),
+        2026 => Some(grid.sync_update()),
+        // 2027 (grapheme clustering) не поддерживается → 0 (не распознан),
+        // чтобы TUI считали ширины по стандартному wcwidth.
+        _ => None,
+    };
+    match flag {
+        Some(true) => 1,
+        Some(false) => 2,
+        None => 0,
     }
 }
 
