@@ -131,6 +131,17 @@ impl FrameReader {
     /// Кадр, видимый в момент `t` (с от начала файла): последний с `pts ≤ t`.
     pub fn frame_at(&mut self, t: f64) -> Result<RgbaFrame, VideoError> {
         let half = if self.fps > 0.0 { 0.5 / self.fps } else { 0.02 };
+        self.frame_within(t, half)
+    }
+
+    /// Последний кадр не позже `t` (а не ближайший): для интерполяции между
+    /// ним и [`FrameReader::peek_next`] — у ближайшего в середине между
+    /// кадрами уже следующий, и промежуточный кадр не построить.
+    pub fn frame_floor(&mut self, t: f64) -> Result<RgbaFrame, VideoError> {
+        self.frame_within(t, 1e-6)
+    }
+
+    fn frame_within(&mut self, t: f64, half: f64) -> Result<RgbaFrame, VideoError> {
         let back = self.cur.as_ref().is_some_and(|c| t + half < c.pts);
         let far = self.cur.as_ref().map_or(t > SEEK_AHEAD, |c| t - c.pts > SEEK_AHEAD);
         if back || far {
