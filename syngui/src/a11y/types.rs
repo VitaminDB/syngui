@@ -115,7 +115,12 @@ pub struct A11yNode {
     pub parent: Option<A11yId>,
     pub children: Vec<A11yId>,
     pub element_id: ElementId,
+    /// Рамка на экране (с прокруткой предков; у видимого — обрезанная видимой областью).
     pub bounds: Rect,
+    /// За краем прокрутки или обрезки предков: в дереве для скринридера
+    /// (навигация по списку), но осмотр снаружи (`inspect`) его не отдаёт —
+    /// нажать то, чего не видно, нельзя.
+    pub offscreen: bool,
 }
 
 #[derive(Clone, Debug)]

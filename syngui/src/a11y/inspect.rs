@@ -78,6 +78,10 @@ pub fn forget(key: u64) {
 
 fn walk(tree: &A11yTree, id: A11yId, depth: u32, out: &mut String, first: &mut bool) {
     let Some(n) = tree.get_node(id) else { return };
+    // за краем прокрутки/обрезки — не отдаём (нажатие попало бы в другое место)
+    if n.offscreen {
+        return;
+    }
     if id != A11yId::SYNTHETIC_ROOT {
         if !*first {
             out.push(',');
@@ -291,4 +295,10 @@ mod tests {
     fn escape() {
         assert_eq!(super::esc("a\"b\\c\nd\u{1}"), "a\\\"b\\\\c\\nd\\u0001");
     }
+}
+
+/// Опубликованные узлы окна (для тестов).
+#[cfg(test)]
+pub(crate) fn snapshot_json(key: u64) -> Option<String> {
+    SNAPS.lock().ok()?.as_ref()?.get(&key).map(|w| w.json_nodes.clone())
 }

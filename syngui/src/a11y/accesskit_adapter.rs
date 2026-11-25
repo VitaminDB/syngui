@@ -219,6 +219,7 @@ mod tests {
             children: vec![],
             element_id: crate::widget::ElementId(5),
             bounds: crate::core::Rect::default(),
+            offscreen: false,
         }
     }
 
