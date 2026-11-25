@@ -1,5 +1,6 @@
 pub mod font_atlas;
 pub mod line_break;
+pub mod raster;
 pub mod registry;
 pub mod script;
 
@@ -18,6 +19,7 @@ pub mod icon_fonts;
 
 pub use font_atlas::{FontAtlas, FontAtlasStats, FontWeight};
 pub use line_break::{break_class, breaks_before, BreakClass};
+pub use raster::{rasterize_text, RasterizedText, TextRasterOpts};
 pub use registry::{family_covers, font_family_name, register_font, register_font_file, register_font_file_auto};
 pub use script::{script_of, Script};
 
