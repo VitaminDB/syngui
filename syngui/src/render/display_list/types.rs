@@ -207,6 +207,18 @@ pub enum Effect {
     BackdropBlur {
         radius: f32,
     },
+    /// Матовое стекло (glassmorphism) с геометрической SDF-обрезкой по форме
+    /// (скруглённый прямоугольник или овал, с поворотом и vibrancy фона).
+    BackdropGlass {
+        radius: f32,
+        size: [f32; 2],
+        corner_radius: f32,
+        ellipse: bool,
+        rotation: f32,
+        opacity: f32,
+        saturation: f32,
+        brightness: f32,
+    },
     Shadow {
         color: Color,
         blur_radius: f32,
@@ -475,6 +487,7 @@ impl Effect {
             Effect::None => true,
             Effect::Blur { radius } => *radius <= 0.0,
             Effect::BackdropBlur { radius } => *radius <= 0.0,
+            Effect::BackdropGlass { opacity, .. } => *opacity <= 0.0,
             Effect::Glow { radius, .. } => *radius <= 0.0,
             Effect::Opacity { value } => (*value - 1.0).abs() < 0.001,
             Effect::Grayscale { amount } | Effect::Sepia { amount } | Effect::Invert { amount } => {

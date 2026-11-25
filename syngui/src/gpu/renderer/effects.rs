@@ -327,6 +327,36 @@ impl Renderer {
                 plan.push(EffectRenderStep::Composite { source, dest });
             }
 
+            Effect::BackdropGlass {
+                radius,
+                size,
+                corner_radius,
+                ellipse,
+                rotation,
+                opacity,
+                saturation,
+                brightness,
+            } => {
+                Self::plan_backdrop_glass(
+                    texture_pool,
+                    device,
+                    dest,
+                    *radius,
+                    *size,
+                    *corner_radius,
+                    *ellipse,
+                    *rotation,
+                    *opacity,
+                    *saturation,
+                    *brightness,
+                    plan,
+                    handles,
+                    elapsed,
+                    bounds_px,
+                );
+                plan.push(EffectRenderStep::Composite { source, dest });
+            }
+
             Effect::Chain(effects) => {
                 let active: Vec<&Effect> = effects.iter().filter(|e| !e.is_identity()).collect();
                 if active.is_empty() {
@@ -369,11 +399,35 @@ impl Renderer {
                         pending.clear();
                     };
                 let mut blend_mode = None;
+                let mut backdrop_glass: Option<(f32, [f32; 2], f32, bool, f32, f32, f32, f32)> = None;
                 for eff in &active {
                     if let Effect::BlendMode { mode } = eff {
                         if *mode != crate::render::display_list::BlendModeType::Normal {
                             blend_mode = Some(*mode);
                         }
+                        continue;
+                    }
+                    if let Effect::BackdropGlass {
+                        radius,
+                        size,
+                        corner_radius,
+                        ellipse,
+                        rotation,
+                        opacity,
+                        saturation,
+                        brightness,
+                    } = eff
+                    {
+                        backdrop_glass = Some((
+                            *radius,
+                            *size,
+                            *corner_radius,
+                            *ellipse,
+                            *rotation,
+                            *opacity,
+                            *saturation,
+                            *brightness,
+                        ));
                         continue;
                     }
                     if let Some(ops) = eff.color_ops() {
@@ -393,6 +447,25 @@ impl Renderer {
                     );
                 }
                 flush(&mut pending, &mut current, texture_pool, plan, handles);
+                if let Some((radius, size, corner_radius, ellipse, rotation, opacity, saturation, brightness)) = backdrop_glass {
+                    Self::plan_backdrop_glass(
+                        texture_pool,
+                        device,
+                        dest,
+                        radius,
+                        size,
+                        corner_radius,
+                        ellipse,
+                        rotation,
+                        opacity,
+                        saturation,
+                        brightness,
+                        plan,
+                        handles,
+                        elapsed,
+                        bounds_px,
+                    );
+                }
                 if let Some(mode) = blend_mode {
                     let backdrop = texture_pool.acquire(device);
                     handles.push(backdrop);
@@ -459,6 +532,85 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn plan_backdrop_glass(
+        texture_pool: &mut crate::gpu::texture_pool::TexturePool,
+        device: &wgpu::Device,
+        dest: EffectTarget,
+        radius: f32,
+        size: [f32; 2],
+        corner_radius: f32,
+        ellipse: bool,
+        rotation: f32,
+        opacity: f32,
+        saturation: f32,
+        brightness: f32,
+        plan: &mut Vec<EffectRenderStep>,
+        handles: &mut Vec<crate::gpu::texture_pool::PoolHandle>,
+        elapsed: f32,
+        bounds_px: [f32; 4],
+    ) {
+        if opacity <= 0.001 {
+            return;
+        }
+        let snapshot = texture_pool.acquire(device);
+        handles.push(snapshot);
+        plan.push(EffectRenderStep::CopyTargetToPool {
+            source: dest,
+            dest: snapshot,
+        });
+        if radius > 0.25 {
+            let temp = texture_pool.acquire(device);
+            handles.push(temp);
+            // Для больших радиусов делаем 2–3 прохода гаусса — размытие остаётся
+            // мягким и однородным без ступенчатых ореолов 9-тапового ядра.
+            let (passes, step_r) = if radius > 26.0 {
+                (3, radius * 0.52)
+            } else if radius > 12.0 {
+                (2, radius * 0.68)
+            } else {
+                (1, radius)
+            };
+            for _ in 0..passes {
+                plan.push(EffectRenderStep::BlurPass {
+                    source: snapshot,
+                    dest: temp,
+                    radius: step_r,
+                    direction: [1.0, 0.0],
+                    region: None,
+                });
+                plan.push(EffectRenderStep::BlurPass {
+                    source: temp,
+                    dest: snapshot,
+                    radius: step_r,
+                    direction: [0.0, 1.0],
+                    region: None,
+                });
+            }
+        }
+        let masked = texture_pool.acquire(device);
+        handles.push(masked);
+        plan.push(EffectRenderStep::PostProcess {
+            source: snapshot,
+            dest: masked,
+            effect_type: 28.0,
+            intensity: opacity.clamp(0.0, 1.0),
+            params: [
+                size[0],
+                size[1],
+                corner_radius,
+                if ellipse { 1.0 } else { 0.0 },
+            ],
+            params2: [rotation, saturation, brightness, 0.0],
+            time: elapsed,
+            bounds: bounds_px,
+        });
+        plan.push(EffectRenderStep::Composite {
+            source: masked,
+            dest,
+        });
     }
 
     fn apply_single_effect(

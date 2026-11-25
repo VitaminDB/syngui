@@ -607,6 +607,53 @@ fn fs_effect(in: VertexOutput) -> vec4<f32> {
         return c * m;
     }
 
+    // ── 28: Backdrop Glass (SDF rounded rect / ellipse + rotation + vibrancy) ──
+    if effect == 28 {
+        let local = to_local_uv(in.uv);
+        let bw = max(pp.bounds.z * pp.resolution.x, 1.0);
+        let bh = max(pp.bounds.w * pp.resolution.y, 1.0);
+        let aspect = bw / bh;
+        let p = local - vec2<f32>(0.5, 0.5);
+        let pa = vec2<f32>(p.x * aspect, p.y);
+        let rot = -pp.params2.x;
+        let ca = cos(rot);
+        let sa = sin(rot);
+        let pr = vec2<f32>(pa.x * ca - pa.y * sa, pa.x * sa + pa.y * ca);
+        let half_sz = max(pp.params.xy * 0.5, vec2<f32>(0.0005));
+        let ha = vec2<f32>(half_sz.x * aspect, half_sz.y);
+        var d: f32;
+        if pp.params.w > 0.5 {
+            let q = pr / ha;
+            let len = length(q);
+            let grad = length(pr / (ha * ha));
+            d = select(-min(ha.x, ha.y), (len - 1.0) / max(grad, 1e-4), len > 1e-5);
+        } else {
+            let r = clamp(pp.params.z, 0.0, 0.5) * 2.0 * min(ha.x, ha.y);
+            let q = abs(pr) - (ha - vec2<f32>(r));
+            d = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
+        }
+        let px = 1.0 / bh;
+        let m = 1.0 - smoothstep(-px * 0.75, px * 0.75, d);
+        let alpha = m * clamp(amount, 0.0, 1.0);
+        if alpha <= 0.0005 {
+            return vec4<f32>(0.0);
+        }
+        let c = textureSample(input_texture, input_sampler, in.uv);
+        var rgb = unpremul(c);
+        if pp.srgb_input > 0.5 {
+            rgb = linear_to_srgb(rgb);
+        }
+        let sat = max(pp.params2.y, 0.0);
+        if abs(sat - 1.0) > 0.001 {
+            rgb = color_op(rgb, 6, sat);
+        }
+        rgb = clamp(rgb + vec3<f32>(pp.params2.z), vec3<f32>(0.0), vec3<f32>(1.0));
+        if pp.srgb_input > 0.5 {
+            rgb = srgb_to_linear(rgb);
+        }
+        return vec4<f32>(rgb * alpha, alpha);
+    }
+
     // Fallback: passthrough
     return textureSample(input_texture, input_sampler, in.uv);
 }
