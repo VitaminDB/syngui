@@ -460,41 +460,13 @@ fn empty_composition() -> Composition {
         .expect("пустая композиция")
 }
 
-/// Декодировать растровые ассеты композиции (PNG/JPEG через `image`).
-#[cfg(all(feature = "image", not(target_arch = "wasm32")))]
 fn load_images(comp: &mut Composition, base: Option<&std::path::Path>) {
-    comp.load_images(|asset| {
-        let bytes = match &asset.embedded {
-            Some(b) => b.clone(),
-            None => {
-                std::fs::read(base.unwrap_or(std::path::Path::new(".")).join(&asset.path)).ok()?
-            }
-        };
-        let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
-        let (w, h) = img.dimensions();
-        Some(crate::lottie::ImageRgba {
-            width: w,
-            height: h,
-            data: img.into_raw().into(),
-        })
-    });
+    crate::lottie::load_images(comp, base);
 }
 
-#[cfg(not(all(feature = "image", not(target_arch = "wasm32"))))]
-fn load_images(comp: &mut Composition, _base: Option<&std::path::Path>) {
-    if comp.has_images() {
-        log::warn!("Lottie: растровые слои пропущены — нужна feature `image`");
-    }
-}
-
-/// Глифы системных шрифтов для текста без встроенных `chars`.
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
 fn load_system_glyphs(comp: &mut Composition) {
-    crate::lottie::sysfont::load_missing_glyphs(comp);
+    crate::lottie::load_system_glyphs(comp);
 }
-
-#[cfg(any(target_arch = "wasm32", target_os = "android"))]
-fn load_system_glyphs(_comp: &mut Composition) {}
 
 impl Widget for Lottie {
     fn create_element(&self) -> Box<dyn Element> {
