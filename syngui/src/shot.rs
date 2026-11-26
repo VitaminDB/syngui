@@ -411,6 +411,9 @@ pub(crate) fn gpu_renderer(size: (u32, u32), scale: f64, high_performance: bool)
         ..Default::default()
     }))
     .map_err(|e| format!("не создать устройство: {e}"))?;
+    // ошибки GPU (нехватка видеопамяти под нейросетями и т. п.) — в журнал, не
+    // паника: Offscreen ставит свой обработчик и возвращает их ошибкой кадра
+    device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| log::warn!("offscreen GPU: {e}")));
     let gpu = GpuShared {
         instance,
         adapter,

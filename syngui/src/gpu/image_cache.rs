@@ -886,6 +886,13 @@ impl ImageGpuCache {
             return;
         }
         self.yuv.remove(&handle.0);
+        // пустая картинка (кадр 0×0 на стыке клипов, пустой титр) — не текстура:
+        // wgpu отвергает такую ошибкой проверки, и create_view ронял процесс
+        if data.width == 0 || data.height == 0 || data.rgba.len() < data.width as usize * data.height as usize * 4 {
+            log::warn!("картинка {}×{} ({} байт) пропущена: пустая или неполная", data.width, data.height, data.rgba.len());
+            self.images.remove(&handle.0);
+            return;
+        }
         let ring_len = if data.single_level { STREAM_RING } else { 1 };
         let same_size = self
             .images
@@ -988,6 +995,10 @@ impl ImageGpuCache {
         data: &ImageData,
         ring_len: usize,
     ) -> Option<Vec<(wgpu::Texture, wgpu::BindGroup, wgpu::BindGroup)>> {
+        // ошибки проверки и нехватку памяти — ловим (иначе create_view у
+        // негодной текстуры ронял весь процесс), картинка просто не грузится
+        #[cfg(not(target_arch = "wasm32"))]
+        let scope_v = device.push_error_scope(wgpu::ErrorFilter::Validation);
         #[cfg(not(target_arch = "wasm32"))]
         let scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         // Полная цепочка мипов: UI рисует картинки сильно меньше натурала
@@ -1015,9 +1026,13 @@ impl ImageGpuCache {
         }
         write_all_levels(queue, &ring[0].0, data);
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(e) = pollster::block_on(scope.pop()) {
-            log::warn!("картинка {}×{}: {e}", data.width, data.height);
-            return None;
+        {
+            let oom = pollster::block_on(scope.pop());
+            let bad = pollster::block_on(scope_v.pop());
+            if let Some(e) = oom.or(bad) {
+                log::warn!("картинка {}×{}: {e}", data.width, data.height);
+                return None;
+            }
         }
         Some(ring)
     }

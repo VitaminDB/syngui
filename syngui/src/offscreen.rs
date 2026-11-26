@@ -45,6 +45,11 @@ pub struct Offscreen {
     row: u32,
     /// Фон под деревом (у видео — чёрный).
     pub background: Color,
+    /// Ошибка GPU с последнего кадра (нехватка видеопамяти и т. п.): wgpu по
+    /// умолчанию ронял на ней процесс — теперь кадр возвращает её ошибкой.
+    gpu_error: Arc<Mutex<Option<String>>>,
+    /// Устройство — экономная (встроенная) видеокарта.
+    pub low_power: bool,
 }
 
 impl Offscreen {
@@ -54,9 +59,34 @@ impl Offscreen {
     }
 
     pub fn with_scale(size: (u32, u32), scale: f64, mss: &str) -> Result<Self, String> {
+        Self::build(size, scale, mss, false)
+    }
+
+    /// На экономной (встроенной) видеокарте: дискретная занята (видеопамять
+    /// под нейросетями) — кадры медленнее, но рисуются.
+    pub fn low_power(size: (u32, u32), mss: &str) -> Result<Self, String> {
+        Self::build(size, 1.0, mss, true)
+    }
+
+    fn build(size: (u32, u32), scale: f64, mss: &str, low: bool) -> Result<Self, String> {
         crate::signal::init_main_thread();
         crate::signal::allow_signal_reads_on_this_thread();
-        let (gpu, renderer, format, pw, ph) = crate::shot::gpu_renderer(size, scale, true)?;
+        let (gpu, renderer, format, pw, ph) = crate::shot::gpu_renderer(size, scale, !low)?;
+        let gpu_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        {
+            let ge = gpu_error.clone();
+            gpu.device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
+                let msg = match &e {
+                    wgpu::Error::OutOfMemory { .. } => "нехватка видеопамяти".to_string(),
+                    other => other.to_string(),
+                };
+                log::warn!("offscreen GPU: {msg}");
+                let mut g = ge.lock().unwrap_or_else(|p| p.into_inner());
+                if g.is_none() {
+                    *g = Some(msg);
+                }
+            }));
+        }
         let mut tree = ElementTree::new();
         tree.text_measure = Some(renderer.font_atlas.clone() as Arc<dyn TextMeasure>);
         tree.image_store = Some(renderer.image_store.clone());
@@ -99,7 +129,7 @@ impl Offscreen {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        Ok(Self { gpu, renderer, tree, engine, root, slot, tick, logical, scale: scale as f32, pw, ph, tex, view, buf, row, background: Color::from_srgb(0, 0, 0, 1.0) })
+        Ok(Self { gpu, renderer, tree, engine, root, slot, tick, logical, scale: scale as f32, pw, ph, tex, view, buf, row, background: Color::from_srgb(0, 0, 0, 1.0), gpu_error, low_power: low })
     }
 
     /// Размер кадра в пикселях.
@@ -153,6 +183,9 @@ impl Offscreen {
             list = self.step();
         }
         crate::shot::render_all(&mut self.renderer, &self.gpu, &self.view, (self.pw, self.ph), &list, self.background);
+        if let Some(e) = self.gpu_error.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            return Err(format!("GPU: {e}"));
+        }
         let mut enc = self.gpu.device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo { texture: &self.tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
@@ -171,6 +204,9 @@ impl Offscreen {
         }
         drop(data);
         self.buf.unmap();
+        if let Some(e) = self.gpu_error.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            return Err(format!("GPU: {e}"));
+        }
         Ok(rgba)
     }
 }
