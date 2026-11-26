@@ -2,7 +2,8 @@
 //! печать в PDF-файл.
 //!
 //! Программа описывает, что печатать, через [`PrintDocument`] (готовое —
-//! [`ImageDocument`] для картинок), и показывает [`PrintDialog`]:
+//! [`ImageDocument`] для картинок, [`PageDocument`] для страниц со своим
+//! размером: PDF, книги, рукописные листы), и показывает [`PrintDialog`]:
 //!
 //! ```ignore
 //! let open = use_signal(false);
@@ -192,6 +193,33 @@ pub enum Fit {
     Fill,
 }
 
+/// Масштаб страниц документа ([`PageDocument`]) на листе.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scale {
+    /// По размеру листа (области печати или ячейки).
+    #[default]
+    Fit,
+    /// Как есть, но большие страницы уменьшить до листа.
+    Shrink,
+    /// Фактический размер (100 %).
+    Actual,
+    /// Свой масштаб, % от настоящего размера страницы.
+    Percent(u32),
+}
+
+impl Scale {
+    /// Множитель к настоящему размеру страницы `page` (мм) для ячейки `cell`.
+    pub fn factor(self, page: (f32, f32), cell: RectMm) -> f32 {
+        let fit = (cell.w / page.0.max(0.01)).min(cell.h / page.1.max(0.01));
+        match self {
+            Scale::Fit => fit,
+            Scale::Shrink => fit.min(1.0),
+            Scale::Actual => 1.0,
+            Scale::Percent(p) => p.clamp(1, 1000) as f32 / 100.0,
+        }
+    }
+}
+
 /// Какие страницы (картинки) печатать.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum PageRange {
@@ -257,7 +285,9 @@ pub struct PrintSettings {
     /// Поля, мм (не меньше непечатаемых полей принтера).
     pub margin_mm: f32,
     pub fit: Fit,
-    /// Картинок на листе (1, 2, 4, 6, 9).
+    /// Масштаб страниц ([`PageDocument`]; у картинок — `fit`).
+    pub scale: Scale,
+    /// Картинок (страниц) на листе (1, 2, 4, 6, 9).
     pub per_sheet: u32,
     /// Остальные настройки драйвера (`MediaType=Labels` и т. п.).
     pub extra: Vec<(String, String)>,
@@ -280,6 +310,7 @@ impl Default for PrintSettings {
             range: PageRange::All,
             margin_mm: 5.0,
             fit: Fit::Fit,
+            scale: Scale::Fit,
             per_sheet: 1,
             extra: Vec::new(),
             pdf_path: PathBuf::new(),
@@ -308,9 +339,23 @@ pub trait PrintDocument: Send + Sync + 'static {
     fn is_images(&self) -> bool {
         false
     }
+    /// Несколько пунктов на листе (окно показывает «на листе»).
+    fn multi_per_sheet(&self) -> bool {
+        self.is_images()
+    }
+    /// Настоящий размер страницы `i`, мм (книжный PDF — 210×297). `Some` — в окне есть
+    /// «Масштаб» (по листу, уменьшать большие, свой %).
+    fn page_size_mm(&self, _i: usize) -> Option<(f32, f32)> {
+        None
+    }
     /// Альбомный ли лист в режиме «Авто» для этих пунктов.
     fn prefers_landscape(&self, _items: &[usize]) -> bool {
         false
+    }
+    /// То же с учётом числа пунктов на листе (последний лист бывает неполным,
+    /// а ориентация всех листов должна совпадать).
+    fn prefers_landscape_for(&self, items: &[usize], _per_sheet: u32) -> bool {
+        self.prefers_landscape(items)
     }
     /// Разложить пункты на лист. `preview` — длинная сторона растра для предпросмотра
     /// (картинки можно отдать уменьшенными); `None` — для печати.
@@ -478,10 +523,152 @@ impl PrintDocument for ImageDocument {
     }
 }
 
+type PageRenderer = Arc<dyn Fn(usize, u32, u32) -> Result<PrintImage, String> + Send + Sync>;
+
+/// Страницы со своим размером (PDF, книга, рукописный лист): масштаб (по листу,
+/// уменьшать большие, свой %), несколько страниц на листе, авто-ориентация по странице.
+/// Растр страницы рисует программа — `render(i, ширина, высота)` в точках:
+/// для предпросмотра маленький, для печати — 300 точек на дюйм.
+pub struct PageDocument {
+    title: String,
+    sizes_mm: Vec<(f32, f32)>,
+    current: usize,
+    range: PageRange,
+    renderer: PageRenderer,
+    small: Mutex<Vec<((usize, u32, u32), PrintImage)>>,
+}
+
+impl PageDocument {
+    /// `sizes_mm` — размеры страниц (мм), их число — длина документа.
+    pub fn new(title: impl Into<String>, sizes_mm: Vec<(f32, f32)>, current: usize, render: impl Fn(usize, u32, u32) -> Result<PrintImage, String> + Send + Sync + 'static) -> Self {
+        Self { title: title.into(), sizes_mm, current, range: PageRange::All, renderer: Arc::new(render), small: Mutex::new(Vec::new()) }
+    }
+
+    /// Размер в пунктах PDF (1/72 дюйма) → мм.
+    pub fn pt_to_mm(pt: f32) -> f32 {
+        pt * 25.4 / 72.0
+    }
+
+    pub fn default_range(mut self, r: PageRange) -> Self {
+        self.range = r;
+        self
+    }
+
+    fn size(&self, i: usize) -> (f32, f32) {
+        self.sizes_mm.get(i).copied().filter(|(w, h)| *w > 0.0 && *h > 0.0).unwrap_or((210.0, 297.0))
+    }
+
+    fn page(&self, i: usize, w: u32, h: u32, preview: bool) -> Result<PrintImage, String> {
+        if !preview {
+            return (self.renderer)(i, w, h);
+        }
+        let key = (i, w, h);
+        if let Some(img) = self.small.lock().unwrap().iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone()) {
+            return Ok(img);
+        }
+        let img = (self.renderer)(i, w, h)?;
+        let mut c = self.small.lock().unwrap();
+        c.push((key, img.clone()));
+        if c.len() > SMALL_CACHE {
+            c.remove(0);
+        }
+        Ok(img)
+    }
+}
+
+/// Пересечение прямоугольников.
+fn intersect(a: RectMm, b: RectMm) -> RectMm {
+    let x = a.x.max(b.x);
+    let y = a.y.max(b.y);
+    RectMm { x, y, w: ((a.x + a.w).min(b.x + b.w) - x).max(0.0), h: ((a.y + a.h).min(b.y + b.h) - y).max(0.0) }
+}
+
+impl PrintDocument for PageDocument {
+    fn title(&self) -> String {
+        self.title.clone()
+    }
+    fn len(&self) -> usize {
+        self.sizes_mm.len()
+    }
+    fn current(&self) -> usize {
+        self.current
+    }
+    fn default_range(&self) -> PageRange {
+        self.range.clone()
+    }
+    fn multi_per_sheet(&self) -> bool {
+        true
+    }
+    fn page_size_mm(&self, i: usize) -> Option<(f32, f32)> {
+        Some(self.size(i))
+    }
+    fn prefers_landscape(&self, items: &[usize]) -> bool {
+        self.prefers_landscape_for(items, items.len() as u32)
+    }
+    fn prefers_landscape_for(&self, items: &[usize], per_sheet: u32) -> bool {
+        let Some(&first) = items.first() else { return false };
+        let (w, h) = self.size(first);
+        match per_sheet.max(1) {
+            1 => w > h,
+            2 | 6 => w <= h,
+            _ => w > h,
+        }
+    }
+
+    fn render(&self, items: &[usize], sheet: &Sheet, s: &PrintSettings, preview: Option<u32>) -> Result<Vec<PlacedImage>, String> {
+        let n = s.per_sheet.max(1);
+        let (cols, rows) = grid(n, sheet.width_mm > sheet.height_mm);
+        let p = sheet.printable;
+        let gap = if n > 1 { GAP_MM } else { 0.0 };
+        let cw = (p.w - gap * (cols - 1) as f32) / cols as f32;
+        let ch = (p.h - gap * (rows - 1) as f32) / rows as f32;
+        let whole = RectMm { x: 0.0, y: 0.0, w: sheet.width_mm, h: sheet.height_mm };
+        let mut out = Vec::new();
+        for (k, &i) in items.iter().enumerate() {
+            let (col, row) = (k as u32 % cols, k as u32 / cols);
+            let cell = RectMm { x: p.x + col as f32 * (cw + gap), y: p.y + row as f32 * (ch + gap), w: cw, h: ch };
+            let size = self.size(i);
+            // Несколько страниц на листе: масштаб — от размера ячейки
+            // (настоящий размер в ячейку всё равно не влезает).
+            let f = if n > 1 {
+                let fit = Scale::Fit.factor(size, cell);
+                match s.scale {
+                    Scale::Percent(pc) => fit * pc.clamp(1, 1000) as f32 / 100.0,
+                    _ => fit,
+                }
+            } else {
+                s.scale.factor(size, cell)
+            };
+            let (w, h) = (size.0 * f, size.1 * f);
+            // Одна страница в настоящем размере — по центру листа (лист A4 ложится
+            // на A4 точно, поля принтера только обрезают); иначе — по центру ячейки.
+            let center = if n == 1 && !matches!(s.scale, Scale::Fit) { whole } else { cell };
+            let rect = RectMm { x: center.x + (center.w - w) / 2.0, y: center.y + (center.h - h) / 2.0, w, h };
+            let clip = intersect(rect, cell);
+            if clip.w <= 0.0 || clip.h <= 0.0 {
+                continue;
+            }
+            let (px_w, px_h) = match preview {
+                Some(side) => {
+                    let k = side as f32 / sheet.width_mm.max(sheet.height_mm);
+                    // Немного с запасом и кратно 16 — меньше разных растров в кэше.
+                    let q = |v: f32| (((v * k * 1.25).ceil() as u32).div_ceil(16) * 16).clamp(16, 4096);
+                    (q(w), q(h))
+                }
+                // Печать: 300 точек на дюйм.
+                None => (((w / 25.4 * 300.0).ceil() as u32).clamp(16, 8192), ((h / 25.4 * 300.0).ceil() as u32).clamp(16, 8192)),
+            };
+            let image = self.page(i, px_w, px_h, preview.is_some())?;
+            out.push(PlacedImage { image, rect, clip });
+        }
+        Ok(out)
+    }
+}
+
 /// Раскладка задания: листы с номерами пунктов на них.
 pub fn sheets(doc: &dyn PrintDocument, s: &PrintSettings) -> Vec<Vec<usize>> {
     let items = s.range.select(doc.len(), doc.current());
-    let per = if doc.is_images() { s.per_sheet.max(1) as usize } else { 1 };
+    let per = if doc.multi_per_sheet() { s.per_sheet.max(1) as usize } else { 1 };
     items.chunks(per).map(|c| c.to_vec()).collect()
 }
 
@@ -491,7 +678,7 @@ pub fn sheet_for(doc: &dyn PrintDocument, items: &[usize], s: &PrintSettings) ->
     let landscape = match s.orientation {
         PageOrientation::Portrait => false,
         PageOrientation::Landscape => true,
-        PageOrientation::Auto => doc.prefers_landscape(items),
+        PageOrientation::Auto => doc.prefers_landscape_for(items, if doc.multi_per_sheet() { s.per_sheet } else { 1 }),
     };
     let (w, h) = if landscape { (pw.max(ph), pw.min(ph)) } else { (pw.min(ph), pw.max(ph)) };
     // Непечатаемые поля даны для книжного листа: в альбомном они поворачиваются.
@@ -695,6 +882,52 @@ pub(crate) fn save_store(pairs: &[(String, String)]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pages(n: usize) -> PageDocument {
+        PageDocument::new("doc.pdf", vec![(210.0, 297.0); n], 0, |_, w, h| Ok(PrintImage::from_rgba(w, h, vec![0; (w * h * 4) as usize])))
+    }
+
+    #[test]
+    fn page_scale_and_per_sheet() {
+        let doc = pages(5);
+        let mut s = PrintSettings { paper: "A4".into(), margin_mm: 10.0, ..Default::default() };
+        // По листу: A4 вписан в область печати 190×277.
+        let sheet = sheet_for(&doc, &[0], &s);
+        assert_eq!((sheet.width_mm, sheet.height_mm), (210.0, 297.0));
+        let r = doc.render(&[0], &sheet, &s, None).unwrap()[0].rect;
+        assert!((r.w - 190.0).abs() < 0.01 && (r.h - 297.0 * 190.0 / 210.0).abs() < 0.01, "{r:?}");
+        // Фактический размер: точно по листу, поля обрезают.
+        s.scale = Scale::Actual;
+        let p = &doc.render(&[0], &sheet, &s, None).unwrap()[0];
+        assert_eq!((p.rect.x, p.rect.y, p.rect.w, p.rect.h), (0.0, 0.0, 210.0, 297.0));
+        assert_eq!((p.clip.x, p.clip.w), (10.0, 190.0));
+        assert_eq!((p.image.width, p.image.height), (2481, 3508));
+        // 50 %: половина по центру листа.
+        s.scale = Scale::Percent(50);
+        let r = doc.render(&[0], &sheet, &s, None).unwrap()[0].rect;
+        assert_eq!((r.x, r.y, r.w, r.h), (52.5, 74.25, 105.0, 148.5));
+        // Уменьшать крупные: A4 в области печати меньше листа — уменьшается.
+        s.scale = Scale::Shrink;
+        assert!(doc.render(&[0], &sheet, &s, None).unwrap()[0].rect.h <= 277.01);
+        // Две на листе: альбомный лист, 3 листа на 5 страниц, обе страницы рядом.
+        s.scale = Scale::Fit;
+        s.per_sheet = 2;
+        let list = sheets(&doc, &s);
+        assert_eq!(list, vec![vec![0, 1], vec![2, 3], vec![4]]);
+        let sheet = sheet_for(&doc, &list[2], &s);
+        assert!(sheet.width_mm > sheet.height_mm, "последний неполный лист тоже альбомный");
+        let placed = doc.render(&list[0], &sheet_for(&doc, &list[0], &s), &s, None).unwrap();
+        assert_eq!(placed.len(), 2);
+        // Свой % на листе с двумя страницами — от ячейки: 50 % — вдвое меньше вписанной.
+        let mut half = s.clone();
+        half.scale = Scale::Percent(50);
+        let small = doc.render(&list[0], &sheet_for(&doc, &list[0], &half), &half, None).unwrap();
+        assert!((small[0].rect.w * 2.0 - placed[0].rect.w).abs() < 0.01);
+        assert!(placed[0].rect.x + placed[0].rect.w <= placed[1].rect.x);
+        // Предпросмотр рисуется.
+        let (_, img) = render_preview(&doc, &list[0], &s, 400).unwrap();
+        assert_eq!(img.width, 400);
+    }
 
     #[test]
     fn ranges() {

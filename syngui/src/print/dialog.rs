@@ -11,7 +11,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use super::{cups, paper, ppd::Ppd, Fit, PageOrientation, PageRange, PrintDocument, PrintImage, PrintOutcome, PrintSettings, Printer, PrinterState, PDF_DESTINATION};
+use super::{cups, paper, ppd::Ppd, Fit, PageOrientation, PageRange, Scale, PrintDocument, PrintImage, PrintOutcome, PrintSettings, Printer, PrinterState, PDF_DESTINATION};
 use crate::async_runtime::run_on_main_thread;
 use crate::i18n::{builtin, builtin_args};
 use crate::layout::{CrossAxisAlignment, MainAxisAlignment};
@@ -182,6 +182,16 @@ fn initial_settings(doc: &dyn PrintDocument) -> PrintSettings {
     }
     if doc.is_images() {
         s.fit = if get("fit") == Some("fill") { Fit::Fill } else { Fit::Fit };
+    }
+    if doc.page_size_mm(0).is_some() {
+        s.scale = match get("scale") {
+            Some("shrink") => Scale::Shrink,
+            Some("actual") => Scale::Actual,
+            Some(v) => v.parse::<u32>().ok().filter(|p| (10..=400).contains(p)).map(Scale::Percent).unwrap_or(Scale::Fit),
+            None => Scale::Fit,
+        };
+    }
+    if doc.multi_per_sheet() {
         s.per_sheet = get("per_sheet").and_then(|v| v.parse().ok()).filter(|n| [1, 2, 4, 6, 9].contains(n)).unwrap_or(1);
     }
     s.pdf_path = super::default_pdf_path(&doc.title());
@@ -212,6 +222,12 @@ fn remember(s: &PrintSettings) {
     set("margin".into(), s.margin_mm.to_string());
     set("fit".into(), if s.fit == Fit::Fill { "fill" } else { "fit" }.into());
     set("per_sheet".into(), s.per_sheet.to_string());
+    set("scale".into(), match s.scale {
+        Scale::Fit => "fit".into(),
+        Scale::Shrink => "shrink".into(),
+        Scale::Actual => "actual".into(),
+        Scale::Percent(p) => p.to_string(),
+    });
     super::save_store(&store);
 }
 
@@ -691,28 +707,50 @@ fn settings_pane(st: State, doc: Arc<dyn PrintDocument>) -> W {
         vec![row(tr("duplex", "Two-sided"), dd)]
     }));
 
-    // Размещение картинок.
-    if doc.is_images() {
+    // Размещение: картинок (страниц) на листе, вписать/заполнить, масштаб.
+    if doc.multi_per_sheet() || doc.page_size_mm(0).is_some() {
         col = col.child(Text::new(tr("layout", "Layout")).class("print-section"));
+        let doc = doc.clone();
+        // Ряд пересоздаётся только при смене вида масштаба (иначе поле процентов теряет фокус).
+        let kind = |s: &super::PrintSettings| (s.per_sheet, s.fit, match s.scale {
+            Scale::Fit => 0u8,
+            Scale::Shrink => 1,
+            Scale::Actual => 2,
+            Scale::Percent(_) => 3,
+        });
+        let key = use_signal(st.settings.with_untracked(kind));
+        create_effect(move || {
+            let k = st.settings.with(kind);
+            if key.get_untracked() != k {
+                key.set(k);
+            }
+        });
         col = col.child(Reactive::new(move || -> Vec<W> {
-            let (n, fit) = st.settings.with(|s| (s.per_sheet, s.fit));
+            let _ = key.get();
+            let (n, fit, scale) = st.settings.with_untracked(|s| (s.per_sheet, s.fit, s.scale));
             const COUNTS: [u32; 5] = [1, 2, 4, 6, 9];
             let sel = COUNTS.iter().position(|c| *c == n).unwrap_or(0);
-            let rows: Vec<W> = vec![
-                row(
-                    tr("per_sheet", "Pictures per sheet"),
+            let mut rows: Vec<W> = Vec::new();
+            if doc.multi_per_sheet() {
+                let label = if doc.is_images() { tr("per_sheet", "Pictures per sheet") } else { tr("pages_per_sheet", "Pages per sheet") };
+                rows.push(row(
+                    label,
                     segmented(COUNTS.iter().map(|c| c.to_string()).collect(), sel, move |i| {
                         st.sheet.set(0);
                         st.settings.update(|s| s.per_sheet = COUNTS[i.min(4)]);
                     }),
-                ),
-                row(
+                ));
+            }
+            if doc.is_images() {
+                rows.push(row(
                     tr("scale", "Scaling"),
                     segmented(vec![tr("fit", "Fit"), tr("fill", "Fill (crop)")], (fit == Fit::Fill) as usize, move |i| {
                         st.settings.update(|s| s.fit = if i == 1 { Fit::Fill } else { Fit::Fit })
                     }),
-                ),
-            ];
+                ));
+            } else if doc.page_size_mm(0).is_some() {
+                rows.push(scale_row(st, scale));
+            }
             vec![Box::new(Column::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(rows))]
         }));
     }
@@ -775,6 +813,46 @@ fn settings_pane(st: State, doc: Arc<dyn PrintDocument>) -> W {
     }));
 
     Box::new(col)
+}
+
+/// Масштаб страниц: по размеру листа, уменьшать большие, фактический размер, свой %.
+fn scale_row(st: State, scale: Scale) -> W {
+    let sel = match scale {
+        Scale::Fit => "fit",
+        Scale::Shrink => "shrink",
+        Scale::Actual => "actual",
+        Scale::Percent(_) => "custom",
+    };
+    let items = vec![
+        DropdownItem::new("fit", tr("scale.fit", "Fit to page")),
+        DropdownItem::new("shrink", tr("scale.shrink", "Shrink large pages")),
+        DropdownItem::new("actual", tr("scale.actual", "Actual size (100%)")),
+        DropdownItem::new("custom", tr("scale.custom", "Custom…")),
+    ];
+    let dd = Dropdown::with_items(items).selected(sel).on_change(move |v: &str| {
+        let next = match v {
+            "shrink" => Scale::Shrink,
+            "actual" => Scale::Actual,
+            "custom" => Scale::Percent(match st.settings.get_untracked().scale {
+                Scale::Percent(p) => p,
+                _ => 100,
+            }),
+            _ => Scale::Fit,
+        };
+        st.settings.update(|s| s.scale = next);
+    });
+    let mut c = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("print-row");
+    c = c.child(Text::new(tr("scale", "Scaling")).class("print-label")).child(dd);
+    if let Scale::Percent(p) = scale {
+        {
+            let spin = SpinBox::new().range(10.0, 400.0).step(5.0).width(140.0).value(p as f64).on_change(move |v: f64| {
+                let p = (v.round() as u32).clamp(10, 400);
+                st.settings.update(|s| s.scale = Scale::Percent(p));
+            });
+            c = c.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(spin).child(Text::new("%").class("print-note")));
+        }
+    }
+    Box::new(c)
 }
 
 fn range_field(st: State, total: usize) -> W {

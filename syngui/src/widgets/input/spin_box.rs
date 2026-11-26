@@ -134,6 +134,7 @@ impl Widget for SpinBox {
             editing: false,
             edit_text: String::new(),
             edit_cursor: 0,
+            replace_all: false,
             cursor_blink: 0.0,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -177,6 +178,9 @@ pub struct SpinBoxElement {
     editing: bool,
     edit_text: String,
     edit_cursor: usize,
+    /// Значение только что взято в правку и выделено: первая цифра заменяет его
+    /// целиком (как выделение при фокусе в обычном поле), Backspace/Delete — стирают.
+    replace_all: bool,
     cursor_blink: f32,
     classes: Vec<String>,
     dirty_flags: DirtyFlags,
@@ -277,7 +281,8 @@ impl SpinBoxElement {
     fn start_editing(&mut self) {
         self.editing = true;
         self.edit_text = self.formatted_value();
-        self.edit_cursor = self.edit_text.len();
+        self.edit_cursor = self.edit_text.chars().count();
+        self.replace_all = true;
         self.cursor_blink = 0.0;
         ACTIVE_EDITOR.store(self.id.0, Ordering::Relaxed);
     }
@@ -463,6 +468,11 @@ impl Element for SpinBoxElement {
                 Point::new(vr.x() + 2.0, vr.y() + (vr.size.height - val_fs) / 2.0),
                 Size::new(vr.size.width - 4.0, val_fs + 2.0),
             );
+            if self.replace_all && !self.edit_text.is_empty() {
+                let w = (self.edit_text.chars().count() as f32 * val_fs * 0.6).min(text_rect.size.width);
+                let sel = Rect::new(text_rect.origin, Size::new(w, val_fs + 2.0));
+                list.push_rect(sel, Color::new(accent.r, accent.g, accent.b, 0.35), [2.0; 4]);
+            }
             list.push_text_singleline(
                 &self.edit_text,
                 text_rect,
@@ -581,6 +591,10 @@ impl Element for SpinBoxElement {
                     return EventResult::Ignored;
                 }
                 if ch.is_ascii_digit() || *ch == '.' || *ch == '-' {
+                    if std::mem::take(&mut self.replace_all) {
+                        self.edit_text.clear();
+                        self.edit_cursor = 0;
+                    }
                     let byte_pos = self.cursor_byte_pos();
                     self.edit_text.insert(byte_pos, *ch);
                     self.edit_cursor += 1;
@@ -588,6 +602,13 @@ impl Element for SpinBoxElement {
                     ctx.request_paint();
                     return EventResult::Handled;
                 }
+                EventResult::Handled
+            }
+            Event::KeyDown(key) if self.editing && self.replace_all && matches!(key, Key::Backspace | Key::Delete) => {
+                self.replace_all = false;
+                self.edit_text.clear();
+                self.edit_cursor = 0;
+                ctx.request_paint();
                 EventResult::Handled
             }
             Event::KeyDown(key) if self.editing => match key {
@@ -611,6 +632,7 @@ impl Element for SpinBoxElement {
                     EventResult::Handled
                 }
                 Key::Left => {
+                    self.replace_all = false;
                     if self.edit_cursor > 0 {
                         self.edit_cursor -= 1;
                         self.cursor_blink = 0.0;
@@ -619,6 +641,7 @@ impl Element for SpinBoxElement {
                     EventResult::Handled
                 }
                 Key::Right => {
+                    self.replace_all = false;
                     let char_count = self.edit_text.chars().count();
                     if self.edit_cursor < char_count {
                         self.edit_cursor += 1;
@@ -628,12 +651,14 @@ impl Element for SpinBoxElement {
                     EventResult::Handled
                 }
                 Key::Home => {
+                    self.replace_all = false;
                     self.edit_cursor = 0;
                     self.cursor_blink = 0.0;
                     ctx.request_paint();
                     EventResult::Handled
                 }
                 Key::End => {
+                    self.replace_all = false;
                     self.edit_cursor = self.edit_text.chars().count();
                     self.cursor_blink = 0.0;
                     ctx.request_paint();
@@ -861,6 +886,7 @@ mod tests {
             editing: false,
             edit_text: String::new(),
             edit_cursor: 0,
+            replace_all: false,
             cursor_blink: 0.0,
             classes: Vec::new(),
             dirty_flags: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
