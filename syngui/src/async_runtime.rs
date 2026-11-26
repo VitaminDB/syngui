@@ -69,6 +69,32 @@ pub fn set_main_thread_waker(wake: impl Fn() + Send + 'static) {
     }
 }
 
+static MAIN_THREAD: OnceLock<std::thread::ThreadId> = OnceLock::new();
+
+/// Отметить текущий поток главным (раннер — при старте; также первый дренаж колбэков).
+pub fn mark_main_thread() {
+    let _ = MAIN_THREAD.set(std::thread::current().id());
+}
+
+/// Код выполняется в главном потоке интерфейса.
+pub fn is_main_thread() -> bool {
+    MAIN_THREAD.get().is_some_and(|id| *id == std::thread::current().id())
+}
+
+/// Выполнить в главном потоке и дождаться результата (из фонового потока —
+/// через очередь колбэков; из главного — сразу, без ожидания самого себя).
+/// `None` — главный поток не ответил за `timeout` (окно закрывается и т. п.).
+pub fn call_on_main_thread<R: Send + 'static>(timeout: std::time::Duration, f: impl FnOnce() -> R + Send + 'static) -> Option<R> {
+    if is_main_thread() || MAIN_THREAD.get().is_none() {
+        return Some(f());
+    }
+    let (tx, rx) = mpsc::channel();
+    run_on_main_thread_wake_only(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(timeout).ok()
+}
+
 pub fn main_thread_sender() -> mpsc::Sender<MainThreadCallback> {
     channel().tx.clone()
 }
@@ -128,6 +154,8 @@ pub(crate) fn clear_async_window() {
 }
 
 pub(crate) fn poll_main_thread_callbacks() {
+    // колбэки дренирует только главный поток — он и отмечается
+    mark_main_thread();
     let ch = channel();
     if let Ok(rx) = ch.rx.try_lock() {
         while let Ok(callback) = rx.try_recv() {
