@@ -77,7 +77,7 @@ mod desktop {
             app_id: &str,
             proxy: EventLoopProxy<SynGuiUserEvent>,
         ) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-            let lock = SingleInstance::new(app_id)
+            let lock = SingleInstance::new(&session_id(app_id))
                 .map_err(|e| format!("single-instance lock failed: {e}"))?;
             if !lock.is_single() {
                 return Ok(None);
@@ -202,6 +202,48 @@ mod desktop {
     }
 
     fn socket_name(app_id: &str) -> String {
-        format!("{app_id}.sock")
+        format!("{}.sock", session_id(app_id))
+    }
+
+    /// Имя экземпляра в пределах сеанса. Замок и сокет — абстрактные (общие на
+    /// всю машину), поэтому программа в другом сеансе (песочница synlink,
+    /// вложенный synwm со своим `XDG_RUNTIME_DIR`) иначе находила бы окно живого
+    /// сеанса и отдавала запуск ему. Стандартный каталог `/run/user/UID` — имя
+    /// без изменений (как было), любой другой — с меткой каталога.
+    pub(crate) fn session_id(app_id: &str) -> String {
+        session_id_for(app_id, std::env::var_os("XDG_RUNTIME_DIR").as_deref().map(std::path::Path::new))
+    }
+
+    fn session_id_for(app_id: &str, runtime: Option<&std::path::Path>) -> String {
+        let default = std::path::PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() }));
+        match runtime {
+            Some(r) if !r.as_os_str().is_empty() && r != default => {
+                // FNV-1a: устойчиво между запусками и версиями (не DefaultHasher)
+                let mut h: u64 = 0xcbf29ce484222325;
+                for b in r.as_os_str().as_encoded_bytes() {
+                    h ^= *b as u64;
+                    h = h.wrapping_mul(0x100000001b3);
+                }
+                format!("{app_id}-{:08x}", h as u32)
+            }
+            _ => app_id.to_string(),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::session_id_for;
+        use std::path::Path;
+
+        #[test]
+        fn live_session_keeps_name_other_runtime_gets_own() {
+            let live = format!("/run/user/{}", unsafe { libc::getuid() });
+            assert_eq!(session_id_for("synthos", Some(Path::new(&live))), "synthos");
+            assert_eq!(session_id_for("synthos", None), "synthos");
+            let a = session_id_for("synthos", Some(Path::new("/run/user/1000/synlink-sandbox/a/run")));
+            let b = session_id_for("synthos", Some(Path::new("/run/user/1000/synlink-sandbox/b/run")));
+            assert!(a.starts_with("synthos-") && a != b);
+            assert_eq!(a, session_id_for("synthos", Some(Path::new("/run/user/1000/synlink-sandbox/a/run"))));
+        }
     }
 }
