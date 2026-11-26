@@ -2247,6 +2247,12 @@ impl Element for CodeEditorElement {
                     return EventResult::Handled;
                 }
                 let Some(action) = map_key(*key, ctx.modifiers) else {
+                    // печатная клавиша: текст придёт CharInput, а саму клавишу
+                    // редактор забирает — иначе она уходит в горячие клавиши
+                    // окна (буква без модификатора), как у TextField
+                    if !self.read_only && key.types_text() && !ctrl && !m.alt {
+                        return EventResult::Handled;
+                    }
                     return EventResult::Ignored;
                 };
                 self.handle_action(action, ctx);
@@ -2703,6 +2709,25 @@ mod tests {
         el.layout(Constraints::tight(Size::new(800.0, 400.0)));
         send(&mut el, Event::FocusGained);
         el
+    }
+
+    #[test]
+    fn printable_keys_do_not_leak_to_window_hotkeys() {
+        allow_signal_reads_on_this_thread();
+        let ed = CodeEditor::new().text("let x = 1;");
+        let mut el = laid_out(&ed);
+        // буква без модификатора — текст придёт CharInput, клавишу забирает редактор
+        assert_eq!(send(&mut el, Event::KeyDown(Key::N)), EventResult::Handled);
+        assert_eq!(send(&mut el, Event::KeyDown(Key::S)), EventResult::Handled);
+        // сочетание окна (Ctrl+…) редактор не трогает, если не знает его
+        assert_eq!(send_mod(&mut el, Event::KeyDown(Key::F11), ctrl()), EventResult::Ignored);
+        // без фокуса — ничего не забирает
+        send(&mut el, Event::FocusLost);
+        assert_eq!(send(&mut el, Event::KeyDown(Key::N)), EventResult::Ignored);
+        // только чтение — клавиши уходят дальше
+        let ro = CodeEditor::new().text("x").read_only(true);
+        let mut el = laid_out(&ro);
+        assert_eq!(send(&mut el, Event::KeyDown(Key::N)), EventResult::Ignored);
     }
 
     fn item(label: &str, kind: &str) -> CompletionItem {
