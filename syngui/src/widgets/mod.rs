@@ -68,7 +68,7 @@ pub use visual::{
 };
 #[cfg(feature = "ffmpeg")]
 pub use visual::{
-    frames_preview, video_player_view, FileSource, FramesSource, FullscreenCtl, MediaSource,
+    frames_preview, video_player_view, AudioFileSource, FileSource, FramesSource, FullscreenCtl, MediaSource,
     VideoPlayerView, VideoView,
 };
 #[cfg(feature = "map")]

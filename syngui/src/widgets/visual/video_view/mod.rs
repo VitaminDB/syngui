@@ -22,7 +22,7 @@ use crate::widgets::ImageFit;
 
 pub use controls::video_player_view;
 pub use player::{
-    frames_preview, FileSource, FramesSource, FullscreenCtl, KeyFn, MediaSource, VideoPlayerView,
+    frames_preview, AudioFileSource, FileSource, FramesSource, FullscreenCtl, KeyFn, MediaSource, VideoPlayerView,
 };
 pub use subtitles::{controls_top_slot, ControlsTop, SubtitleLayer, TopProbe};
 

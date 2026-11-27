@@ -256,6 +256,90 @@ impl MediaSource for FileSource {
     }
 }
 
+/// Звуковой файл без видео (WAV, MP3, FLAC…): `AudioFilePlayer` — тот же
+/// плеер с перемоткой, паузой и громкостью; холст — значок и имя файла.
+pub struct AudioFileSource(pub Arc<Mutex<crate::video::AudioFilePlayer>>);
+
+impl MediaSource for AudioFileSource {
+    fn duration(&self) -> f64 {
+        self.0.lock().map(|p| p.duration_sec().max(0.0)).unwrap_or(0.0)
+    }
+
+    fn position(&self) -> f64 {
+        self.0.lock().map(|p| p.position_sec()).unwrap_or(0.0)
+    }
+
+    fn is_paused(&self) -> bool {
+        self.0.lock().map(|p| p.is_paused() || p.is_ended()).unwrap_or(true)
+    }
+
+    fn play(&self) {
+        if let Ok(mut p) = self.0.lock() {
+            // доиграл — с начала
+            if p.is_ended() {
+                let _ = p.seek(0.0);
+            }
+            p.play();
+        }
+    }
+
+    fn pause(&self) {
+        if let Ok(mut p) = self.0.lock() {
+            p.pause();
+        }
+    }
+
+    fn seek(&self, t: f64) {
+        if let Ok(mut p) = self.0.lock() {
+            if let Err(e) = p.seek(t) {
+                log::warn!("[audio-player] seek {t:.2}s: {e}");
+            }
+        }
+    }
+
+    fn volume(&self) -> f32 {
+        self.0.lock().map(|p| p.volume()).unwrap_or(1.0)
+    }
+
+    fn set_volume(&self, v: f32) {
+        if let Ok(mut p) = self.0.lock() {
+            p.set_volume(v);
+        }
+    }
+
+    fn has_audio(&self) -> bool {
+        true
+    }
+
+    fn canvas(self: Arc<Self>, _pos: RwSignal<f32>, _fit: ImageFit) -> Box<dyn Widget> {
+        let name = self
+            .0
+            .lock()
+            .map(|p| {
+                let m = p.meta();
+                match (&m.title, &m.artist) {
+                    (Some(t), Some(a)) => format!("{a} — {t}"),
+                    (Some(t), None) => t.clone(),
+                    _ => std::path::Path::new(p.path()).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                }
+            })
+            .unwrap_or_default();
+        Box::new(
+            crate::Center::new().child(
+                Column::new()
+                    .gap(10.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(crate::widgets::visual::Icon::new("\u{E405}").class("vp-audio-icon"))
+                    .child(Text::new(name).max_lines(2).class("vp-audio-title")),
+            ),
+        )
+    }
+
+    fn drives_position(&self) -> bool {
+        false
+    }
+}
+
 type Frames = Arc<Vec<Arc<VideoFrame>>>;
 
 /// Кадры из памяти (например, выход генератора видео) и, если есть, их звук. Часы — системные:
@@ -543,6 +627,11 @@ impl VideoPlayerView {
     /// Файл, уже открытый в `VideoPlayer`.
     pub fn file(player: Arc<Mutex<VideoPlayer>>) -> Self {
         Self::new(Arc::new(FileSource(player)))
+    }
+
+    /// Звуковой файл без видео (WAV, MP3, FLAC…) — тот же плеер.
+    pub fn audio_file(player: Arc<Mutex<crate::video::AudioFilePlayer>>) -> Self {
+        Self::new(Arc::new(AudioFileSource(player)))
     }
 
     pub fn fullscreen(mut self, ctl: FullscreenCtl) -> Self {

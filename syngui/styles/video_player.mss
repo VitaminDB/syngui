@@ -291,3 +291,7 @@ ToolButton.vp-nav-sm {
     color: #FFFFFF;
     icon-size: 22px;
 }
+
+/* звуковой файл без видео (AudioFileSource): значок и имя по центру */
+.vp-audio-icon { icon-size: 64px; icon-color: #FFFFFF99; }
+.vp-audio-title { font-size: 14px; color: #FFFFFFCC; text-align: center; }
