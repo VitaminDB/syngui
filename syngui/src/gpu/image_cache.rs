@@ -80,6 +80,12 @@ pub fn build_mips(w: u32, h: u32, rgba: &[u8]) -> Vec<super::image_store::MipLev
     out
 }
 
+/// Сколько раз картинку пришлось уменьшить или выбросить из-за нехватки
+/// видеопамяти (с начала процесса). Интерфейсу это допустимо (лучше мыло,
+/// чем паника), а кадр на вывод (`Offscreen`, экспорт видео) с такой
+/// текстурой — брак: offscreen сравнивает счётчик до и после кадра.
+pub static DEGRADED_UPLOADS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub fn downscale_half(w: u32, h: u32, src: &[u8]) -> (u32, u32, Vec<u8>) {
     let dw = (w / 2).max(1);
     let dh = (h / 2).max(1);
@@ -947,9 +953,19 @@ impl ImageGpuCache {
         // Тогда — уменьшенная вдвое копия, пока не влезет, а не паника.
         let limit = device.limits().max_texture_dimension_2d;
         let mut cur = std::borrow::Cow::Borrowed(data);
+        let mut oom = false;
         loop {
             if cur.width.max(cur.height) <= limit {
-                if let Some(ring) = self.create_ring(device, queue, &cur, ring_len) {
+                let ring = self.create_ring(device, queue, &cur, ring_len);
+                if ring.is_none() {
+                    oom = true;
+                }
+                if let Some(ring) = ring {
+                    if oom {
+                        // уменьшена из-за нехватки видеопамяти (а не предела стороны):
+                        // для кадров на вывод (экспорт) это брак — offscreen сочтёт кадр ошибкой
+                        DEGRADED_UPLOADS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
                     if cur.width != data.width {
                         log::warn!(
                             "картинка {}×{} загружена в GPU уменьшенной до {}×{}",
@@ -974,6 +990,7 @@ impl ImageGpuCache {
             match smaller(&cur) {
                 Some(next) => cur = std::borrow::Cow::Owned(next),
                 None => {
+                    DEGRADED_UPLOADS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     log::error!(
                         "картинка {}×{} не поместилась в видеопамять",
                         data.width,

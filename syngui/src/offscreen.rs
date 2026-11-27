@@ -171,6 +171,7 @@ impl Offscreen {
     /// Нарисовать дерево `build` и вернуть RGBA кадра (`pixel_size`, строки без выравнивания).
     pub fn render(&mut self, build: impl FnOnce() -> Box<dyn Widget> + Send + 'static) -> Result<Vec<u8>, String> {
         *self.slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Box::new(build));
+        let degraded0 = crate::gpu::image_cache::DEGRADED_UPLOADS.load(std::sync::atomic::Ordering::Relaxed);
         self.tick.update(|t| *t += 1);
         let mut list = self.step();
         // картинки, которые грузятся в фоне (файлы), — дождаться
@@ -185,6 +186,11 @@ impl Offscreen {
         crate::shot::render_all(&mut self.renderer, &self.gpu, &self.view, (self.pw, self.ph), &list, self.background);
         if let Some(e) = self.gpu_error.lock().unwrap_or_else(|p| p.into_inner()).take() {
             return Err(format!("GPU: {e}"));
+        }
+        // кэш картинок уменьшил или выбросил текстуру из-за нехватки видеопамяти —
+        // кадр вышел бы пиксельным: ошибка, вызывающий перерисует его на другой карте
+        if crate::gpu::image_cache::DEGRADED_UPLOADS.load(std::sync::atomic::Ordering::Relaxed) != degraded0 {
+            return Err("GPU: нехватка видеопамяти — текстура кадра уменьшена".into());
         }
         let mut enc = self.gpu.device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
