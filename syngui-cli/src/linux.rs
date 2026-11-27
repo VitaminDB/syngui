@@ -368,14 +368,14 @@ pub fn icon_name(app: &App) -> String {
                 .find_map(|l| l.strip_prefix("Icon=").map(|s| s.trim().to_string()))
         })
         .filter(|s| !s.is_empty() && !s.contains('/'))
-        .unwrap_or_else(|| app.bin().unwrap_or_else(|_| app.krate.clone()))
+        .unwrap_or_else(|| app.installed_bin().unwrap_or_else(|_| app.krate.clone()))
 }
 
 pub const PNG_SIZES: [u32; 8] = [16, 24, 32, 48, 64, 128, 256, 512];
 
 /// Файлы приложения в дереве корня (usr/bin, ярлык, значки, документы, доп. файлы) — общая часть архива и пакета.
 pub fn stage(app: &App, bin_path: &Path, root: &Path, strip_for: Option<Target>) -> Result<()> {
-    let bin = app.bin()?;
+    let bin = app.installed_bin()?;
     if root.exists() {
         std::fs::remove_dir_all(root)?;
     }

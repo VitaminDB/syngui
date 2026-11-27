@@ -186,6 +186,10 @@ pub struct IosMeta {
 pub struct LinuxMeta {
     /// Имя пакета Arch/AUR (по умолчанию — имя программы).
     pub package: Option<String>,
+    /// Имя программы в usr/bin, если отличается от [[bin]] (ardor_mouse → ardor-mouse).
+    pub bin_name: Option<String>,
+    /// Скрипт pacman .install (post_install/post_upgrade…): пакет arch, AUR -git и -bin.
+    pub install: Option<String>,
     pub depends: Option<Vec<String>>,
     pub optdepends: Vec<String>,
     pub makedepends: Vec<String>,
@@ -371,6 +375,14 @@ impl App {
     }
 
     /// Основная программа приложения.
+    /// Имя программы в системе (usr/bin): `linux.bin_name`, иначе [`App::bin`].
+    pub fn installed_bin(&self) -> Result<String> {
+        match &self.meta.linux.bin_name {
+            Some(n) => Ok(n.clone()),
+            None => self.bin(),
+        }
+    }
+
     pub fn bin(&self) -> Result<String> {
         if let Some(b) = &self.meta.bin {
             return Ok(b.clone());

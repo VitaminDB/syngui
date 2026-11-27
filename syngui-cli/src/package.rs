@@ -10,7 +10,7 @@ use std::process::Command;
 
 /// Имя пакета Arch/AUR.
 pub fn pkgname(app: &App) -> Result<String> {
-    Ok(app.meta.linux.package.clone().unwrap_or(app.bin()?))
+    Ok(app.meta.linux.package.clone().unwrap_or(app.installed_bin()?))
 }
 
 /// Имя архива релиза: `<программа>-<версия>-<арх>.tar.zst` (его скачивает -bin).
@@ -73,7 +73,7 @@ pub fn tar(
 
 /// install.sh архива: дерево usr/ → $1 (по умолчанию ~/.local), обновить кэши значков и ярлыков.
 fn installer(app: &App) -> Result<String> {
-    let bin = app.bin()?;
+    let bin = app.installed_bin()?;
     Ok(format!(
         r#"#!/bin/sh
 # Установить {bin}: ./install.sh — в ~/.local (без root); sudo ./install.sh /usr — в систему.
@@ -177,6 +177,21 @@ fn epoch_line(app: &App) -> String {
     app.meta.linux.epoch.map(|e| format!("epoch={e}\n")).unwrap_or_default()
 }
 
+/// `install=<файл>` для PKGBUILD (`linux.install`): скрипт копируется рядом с PKGBUILD в `dir`.
+fn install_line(app: &App, dir: &Path) -> Result<String> {
+    let Some(i) = &app.meta.linux.install else {
+        return Ok(String::new());
+    };
+    let src = app.path(i);
+    let file = src
+        .file_name()
+        .with_context(|| format!("linux.install: «{i}»"))?
+        .to_string_lossy()
+        .into_owned();
+    util::copy(&src, &dir.join(&file))?;
+    Ok(format!("install={}\n", sh(&file)))
+}
+
 /// Префикс версии в имени файла пакета: `N:` при epoch.
 fn epoch_prefix(app: &App) -> String {
     app.meta.linux.epoch.map(|e| format!("{e}:")).unwrap_or_default()
@@ -212,7 +227,8 @@ pub fn arch(
     util::copy(&tar, &dir.join(&tarname))?;
     let pkgver = app.version.replace('-', "_");
     let pkgbuild = format!(
-        "# Сгенерировано syngui package --format arch\npkgname={name}\n{epoch}pkgver={pkgver}\npkgrel={rel}\npkgdesc={desc}\narch=({arch})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}conflicts=({name}-bin {name}-git)\noptions=('!strip' '!debug')\nsource=({src})\nsha256sums=('SKIP')\n\npackage() {{\n{INSTALL_TREE}}}\n",
+        "# Сгенерировано syngui package --format arch\npkgname={name}\n{epoch}pkgver={pkgver}\npkgrel={rel}\npkgdesc={desc}\narch=({arch})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}conflicts=({name}-bin {name}-git)\n{install}options=('!strip' '!debug')\nsource=({src})\nsha256sums=('SKIP')\n\npackage() {{\n{INSTALL_TREE}}}\n",
+        install = install_line(app, &dir)?,
         rel = app.build_number(),
         epoch = epoch_line(app),
         desc = sh(&app.description),
@@ -316,6 +332,7 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
         .to_string();
     let name = pkgname(app)?;
     let bin = app.bin()?;
+    let ibin = app.installed_bin()?;
     let out = out
         .map(Path::to_path_buf)
         .unwrap_or_else(|| app.target_dir.join("syngui/aur"));
@@ -377,13 +394,13 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
     };
     let icon = linux::icon_name(app);
     let mut inst = format!(
-        "    install -Dm755 \"$CARGO_TARGET_DIR/release/{bin}\" \"$pkgdir/usr/bin/{bin}\"\n"
+        "    install -Dm755 \"$CARGO_TARGET_DIR/release/{bin}\" \"$pkgdir/usr/bin/{ibin}\"\n"
     );
     if let Some(d) = app.desktop_file() {
         let name = if app.meta.desktop.is_some() {
             d.file_name().unwrap().to_string_lossy().into_owned()
         } else {
-            format!("{bin}.desktop")
+            format!("{ibin}.desktop")
         };
         inst.push_str(&format!(
             "    install -Dm644 {} \"$pkgdir/usr/share/applications/{name}\"\n",
@@ -437,7 +454,7 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
     }
 
     let git = format!(
-        "{maint}pkgname={name}-git\n{epoch}pkgver={ver}.r0\npkgrel=1\npkgdesc={desc}\narch=({arches})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}makedepends=({mk})\nprovides=({name})\nconflicts=({name} {name}-bin)\noptions=('!lto')\nsource=({sources})\nsha256sums=({skips})\n\n\
+        "{maint}pkgname={name}-git\n{epoch}pkgver={ver}.r0\npkgrel=1\npkgdesc={desc}\narch=({arches})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}makedepends=({mk})\nprovides=({name})\nconflicts=({name} {name}-bin)\n{install_git}options=('!lto')\nsource=({sources})\nsha256sums=({skips})\n\n\
          pkgver() {{\n    cd \"$srcdir/{repo_name}\"\n    local v\n    v=$(git describe --tags --abbrev=0 2>/dev/null || echo v{ver})\n    printf '%s.r%s.g%s' \"${{v#v}}\" \"$(git rev-list --count HEAD)\" \"$(git rev-parse --short HEAD)\"\n}}\n\n\
          prepare() {{\n    cd {cd}\n    export RUSTUP_TOOLCHAIN=stable\n    cargo fetch --target \"$(rustc -vV | sed -n 's/host: //p')\"\n}}\n\n\
          build() {{\n    cd {cd}\n    export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=\"$srcdir/target\"\n{build_env}{features_sel}    cargo build --release --offline -p {krate} --bin {bin} \"${{_f[@]}}\"\n}}\n\n\
@@ -448,6 +465,7 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
         lic = sh(&license(app)),
         mk = arr(&mk),
         krate = app.krate,
+        install_git = install_line(app, &out.join(format!("{name}-git")))?,
     );
 
     // -bin: суммы готовых архивов, если они собраны
@@ -476,8 +494,9 @@ pub fn aur(app: &App, out: Option<&Path>) -> Result<PathBuf> {
         util::warn(format!("для -bin нет сумм архивов {} (syngui package -f tar -t <цель> --release) — стоит SKIP", missing.join(", ")));
     }
     let binpkg = format!(
-        "{maint}pkgname={name}-bin\n{epoch}pkgver={ver}\npkgrel=1\npkgdesc={desc}\narch=({arches})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}provides=({name})\nconflicts=({name} {name}-git)\noptions=('!strip' '!debug')\n\
+        "{maint}pkgname={name}-bin\n{epoch}pkgver={ver}\npkgrel=1\npkgdesc={desc}\narch=({arches})\nurl={url}\nlicense=({lic})\ndepends=({deps})\n{opt}provides=({name})\nconflicts=({name} {name}-git)\n{install_bin}options=('!strip' '!debug')\n\
          {srcs}{sums}\npackage() {{\n    cd \"$srcdir\"\n{INSTALL_TREE}}}\n",
+        install_bin = install_line(app, &out.join(format!("{name}-bin")))?,
         ver = app.version,
         desc = sh(&desc_en(app)),
         url = sh(&repo),

@@ -120,6 +120,8 @@ default_features = false
 
 [package.metadata.syngui.linux]
 package = "syncook"                # имя пакета Arch/AUR (по умолчанию — программа)
+bin_name = "syncook"               # имя программы в usr/bin, если отличается от [[bin]] (ardor_mouse → ardor-mouse)
+install = "packaging/syncook.install"   # скрипт pacman .install (post_install…): пакет arch, AUR -git и -bin
 depends = ["gcc-libs", "fontconfig", "libxkbcommon", "wayland", "vulkan-icd-loader"]
 optdepends = ["ffmpeg: видео"]
 makedepends = ["nasm"]             # для -git, к cargo git clang pkgconf
