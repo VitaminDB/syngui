@@ -20,6 +20,8 @@ pub use context::{
 pub use image_cache::ImageGpuCache;
 #[cfg(feature = "image")]
 pub use image_store::image_file_size;
+#[cfg(feature = "svg")]
+pub use image_store::rasterize_svg;
 pub use image_store::{
     set_yuv16_supported, yuv16_supported, AnimFrame, Animation, ImageData, ImageHandle,
     ImageLoadState, ImageSource, ImageStore, YuvDmaBuf, YuvFrame, YuvHdr, YuvLayout, YuvMatrix,

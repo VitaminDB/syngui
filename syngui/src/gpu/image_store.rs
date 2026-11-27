@@ -1377,25 +1377,34 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
+/// Растеризовать SVG в RGBA (не премультиплицированный): наибольшая сторона —
+/// `max_side` (0 — естественный размер, но не больше 2048 и не меньше 192 px).
+/// Возвращает размер растра, пиксели и естественный размер документа.
+/// Для программ, которым SVG нужен не виджетом, а кадром (рендер видео,
+/// миниатюры, живой просмотр правки SVG).
 #[cfg(feature = "svg")]
-fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
+pub fn rasterize_svg(bytes: &[u8], max_side: u32) -> Result<(u32, u32, Vec<u8>, (u32, u32)), String> {
     use resvg::tiny_skia;
     use resvg::usvg;
 
     let opt = usvg::Options::default();
     let tree = usvg::Tree::from_data(bytes, &opt).map_err(|e| format!("svg parse: {e}"))?;
     let size = tree.size();
-    let max_side = size.width().max(size.height());
-    const MAX_PX: f32 = 2048.0;
-    // Мелкие SVG (значки 16–48 px) растеризуются минимум в 192 px: увеличение
-    // (док, масштаб интерфейса) не мылит, уменьшение сглаживают мипы.
-    const MIN_PX: f32 = 192.0;
-    let scale = if max_side > MAX_PX {
-        MAX_PX / max_side
-    } else if max_side > 0.0 && max_side < MIN_PX {
-        MIN_PX / max_side
+    let side = size.width().max(size.height());
+    let scale = if max_side > 0 {
+        if side > 0.0 { max_side as f32 / side } else { 1.0 }
     } else {
-        1.0
+        const MAX_PX: f32 = 2048.0;
+        // Мелкие SVG (значки 16–48 px) растеризуются минимум в 192 px: увеличение
+        // (док, масштаб интерфейса) не мылит, уменьшение сглаживают мипы.
+        const MIN_PX: f32 = 192.0;
+        if side > MAX_PX {
+            MAX_PX / side
+        } else if side > 0.0 && side < MIN_PX {
+            MIN_PX / side
+        } else {
+            1.0
+        }
     };
     let w_px = ((size.width() * scale).round() as u32).max(1);
     let h_px = ((size.height() * scale).round() as u32).max(1);
@@ -1414,12 +1423,17 @@ fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
             px[2] = ((px[2] as f32 * inv).round() as u32).min(255) as u8;
         }
     }
+    let natural = ((size.width().round() as u32).max(1), (size.height().round() as u32).max(1));
+    Ok((w_px, h_px, rgba, natural))
+}
+
+#[cfg(feature = "svg")]
+fn decode_svg(bytes: &[u8]) -> Result<ImageData, String> {
+    let (w_px, h_px, rgba, natural) = rasterize_svg(bytes, 0)?;
     let mut data = ImageData::with_mips(w_px, h_px, Arc::<[u8]>::from(rgba.into_boxed_slice()));
-    if scale > 1.0 {
-        data.natural = Some((
-            (size.width().round() as u32).max(1),
-            (size.height().round() as u32).max(1),
-        ));
+    // растр крупнее документа (мелкий значок) — раскладке нужен естественный размер
+    if w_px > natural.0 {
+        data.natural = Some(natural);
     }
     Ok(data)
 }
