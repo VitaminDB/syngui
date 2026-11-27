@@ -208,3 +208,91 @@ pub fn xml(s: &str) -> String {
 pub fn sh(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
+
+/// Свои фреймворки (git-зависимости с `github.com/VitaminDB/`: syngui, synaptix…) всегда берутся
+/// последними: `Cargo.lock` закрепляет коммит git-зависимости и сам его не двигает, поэтому перед
+/// сборкой — `cargo update <их крейты>`. Отключить: `SYNGUI_NO_UPDATE=1`. Нет сети — предупреждение,
+/// сборка идёт с закреплёнными коммитами.
+pub fn update_own_deps(manifest: Option<&Path>) {
+    if std::env::var_os("SYNGUI_NO_UPDATE").is_some() {
+        return;
+    }
+    let mut c = Command::new("cargo");
+    c.args(["locate-project", "--workspace", "--message-format", "plain"]);
+    if let Some(m) = manifest {
+        c.arg("--manifest-path").arg(m);
+    }
+    let Ok(out) = c.stderr(std::process::Stdio::null()).output() else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let ws_manifest = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let Some(root) = ws_manifest.parent() else {
+        return;
+    };
+    let Ok(lock) = std::fs::read_to_string(root.join("Cargo.lock")) else {
+        return;
+    };
+    let names = own_git_crates(&lock);
+    if names.is_empty() {
+        return;
+    }
+    step(format!("свои фреймворки — последние коммиты: cargo update {}", names.join(" ")));
+    let mut c = Command::new("cargo");
+    c.arg("update").arg("--manifest-path").arg(&ws_manifest).args(&names);
+    match c.status() {
+        Ok(s) if s.success() => {}
+        _ => warn("cargo update не удался (нет сети?) — сборка с закреплёнными в Cargo.lock коммитами"),
+    }
+}
+
+/// Имена крейтов из `Cargo.lock`, взятых из git-репозиториев `github.com/VitaminDB/`.
+fn own_git_crates(lock: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for block in lock.split("[[package]]") {
+        let field = |k: &str| {
+            block.lines().find_map(|l| {
+                l.strip_prefix(k)
+                    .and_then(|r| r.trim().strip_prefix('='))
+                    .map(|v| v.trim().trim_matches('"').to_string())
+            })
+        };
+        let (Some(name), Some(src)) = (field("name"), field("source")) else {
+            continue;
+        };
+        if src.starts_with("git+https://github.com/VitaminDB/") && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn own_git_crates_only_vitamindb_git() {
+        let lock = r#"
+[[package]]
+name = "syngui"
+version = "0.1.0"
+source = "git+https://github.com/VitaminDB/syngui#d01057ad"
+
+[[package]]
+name = "mss-lang"
+version = "0.1.0"
+source = "git+https://github.com/VitaminDB/syngui#d01057ad"
+
+[[package]]
+name = "serde"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "local"
+version = "0.1.0"
+"#;
+        assert_eq!(super::own_git_crates(lock), vec!["syngui", "mss-lang"]);
+    }
+}

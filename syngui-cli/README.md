@@ -47,6 +47,10 @@ syngui init                            # заготовка [package.metadata.sy
 `--release` — LTO для публикации, `--debug` — dev. `package` тоже по умолчанию собирает fast-release
 (`--fast` принимается для совместимости); `package --release` — LTO для публикации (APK — релизным ключом).
 
+Свои фреймворки всегда последние: перед `build`, `package`, `run` (кроме `--no-build`) и `release --apply|--publish`
+утилита делает `cargo update` для git-зависимостей с `github.com/VitaminDB/` (syngui, synaptix…) —
+`Cargo.lock` сам закреплённый коммит не двигает. Отключить: `SYNGUI_NO_UPDATE=1`; нет сети — сборка с прежними коммитами.
+
 После каждой упаковки в `target/syngui/dist/` обновляется общий `SHA256SUMS`.
 
 Результаты: служебное — `target/syngui/<вид>/<крейт>/` (сгенерированный gradle-проект, .app, stage),

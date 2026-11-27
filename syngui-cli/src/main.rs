@@ -294,6 +294,17 @@ fn main() {
 }
 
 fn real_main(cli: Cli) -> Result<()> {
+    // перед сборкой — последние коммиты своих фреймворков (Cargo.lock сам их не двигает)
+    match &cli.cmd {
+        Cmd::Build { sel, .. } | Cmd::Package { sel, .. } => {
+            util::update_own_deps(sel.manifest_path.as_deref())
+        }
+        Cmd::Run { sel, no_build: false, .. } => util::update_own_deps(sel.manifest_path.as_deref()),
+        Cmd::Release { sel, apply, publish, .. } if *apply || *publish => {
+            util::update_own_deps(sel.manifest_path.as_deref())
+        }
+        _ => {}
+    }
     match cli.cmd {
         Cmd::Doctor { target } => {
             let t = if target.is_empty() {
