@@ -18,8 +18,8 @@ syngui run -d phone                    # aarch64 → телефон (synport) в
 syngui run -d phone --pkg              # то же пакетом pacman (sudo pacman -U, сверка версии и даты сборки)
 syngui run -d ssh:xiaomi-12t-pro --no-install -- --arg   # только запустить установленную (хост из ~/.ssh/config)
 syngui package -w -f arch -t linux-aarch64 --install -d phone   # пакеты выпуска — на устройство
-syngui package -f apk                  # релиз: --release (LTO), только релизным ключом → dist + .sha256
-syngui package -f tar -t all-linux     # архивы релиза x86_64 и aarch64 (их скачивает -bin)
+syngui package -f apk --release        # релиз: LTO, только релизным ключом → dist + .sha256
+syngui package -f tar -t all-linux --release   # архивы релиза x86_64 и aarch64 (их скачивает -bin)
 syngui package -f arch -t all-linux    # пакеты pacman обеих архитектур
 syngui package -f aur                  # PKGBUILD + .SRCINFO для <имя>-git и <имя>-bin
 syngui package -f ipa                  # неподписанный .ipa
@@ -28,8 +28,8 @@ syngui build -t windows-x86_64         # exe через mingw-w64
 syngui build -t web                    # WebAssembly → target/syngui/web/<крейт>/ (index.html, pkg/, ассеты)
 syngui run -d web                      # собрать и раздать по http://127.0.0.1:8080/ (--listen 0.0.0.0:8000)
 syngui package -f tar --portable       # linux-x86_64 в контейнере с glibc 2.31 (Ubuntu 20.04+, Debian 11+)
-syngui package -w -f arch --fast --install   # весь выпуск рабочего пространства, pacman -U одной транзакцией
-echo ПАРОЛЬ | syngui package -w -f arch --fast --install   # без терминала (агент, IDE): пароль sudo из stdin или $SYNGUI_SUDO_PASSWORD
+syngui package -w -f arch --install        # весь выпуск рабочего пространства, pacman -U одной транзакцией
+echo ПАРОЛЬ | syngui package -w -f arch --install   # без терминала (агент, IDE): пароль sudo из stdin или $SYNGUI_SUDO_PASSWORD
 syngui release 0.2.0                   # выпуск: сухой прогон — что будет сделано
 syngui release 0.2.0 --apply           # версия в Cargo.toml, коммит «Выпуск 0.2.0», тег v0.2.0 (локально)
 syngui release 0.2.0 --publish         # + архивы, APK/IPA, git push, gh release create, AUR с суммами
@@ -44,8 +44,8 @@ syngui init                            # заготовка [package.metadata.sy
 `-w --only <пакет>` (cross, files, depends и т. д.), а не голым крейтом.
 
 Профили: по умолчанию `fast-release` (если в Cargo.toml его нет — задаётся через `--config`),
-`--release` — LTO для публикации, `--debug` — dev. `package` всегда собирает `--release`;
-`--fast` — проверить упаковку быстро.
+`--release` — LTO для публикации, `--debug` — dev. `package` тоже по умолчанию собирает fast-release
+(`--fast` принимается для совместимости); `package --release` — LTO для публикации (APK — релизным ключом).
 
 После каждой упаковки в `target/syngui/dist/` обновляется общий `SHA256SUMS`.
 
@@ -204,7 +204,7 @@ wasm-bindgen-cli должен быть той же версии, что крей
 упаковке архивов для `<имя>-bin`.
 
 ```sh
-syngui package -w -f arch --fast --install          # собрать всё, makepkg, pacman -U одной транзакцией
+syngui package -w -f arch --install                 # собрать всё (fast-release), makepkg, pacman -U одной транзакцией
 syngui build -w -t linux-aarch64                    # только собрать программы выпуска (без упаковки) → target/syngui/release/<имя>/<арх>/bin
 syngui package -w -f arch -t linux-aarch64          # пакеты для телефона (sysroot)
 syngui package -w -f tar -t all-linux               # архивы <пакет>-<вер>-<арх>.tar.zst для -bin
@@ -251,7 +251,7 @@ cross = [                              # программы под другую 
   # tier 3 (нет std у rustup): nightly + -Zbuild-std, нужен rust-src; win7 — Windows 7…11 одним exe
   { bin = "syn-vm-agent", target = "x86_64-win7-windows-gnu", to = "usr/lib/syn-vm/agent/", build_std = true },
 ]
-webs = [                               # веб-сборки крейтов (как syngui build -t web; --fast — fast-release, иначе --release)
+webs = [                               # веб-сборки крейтов (как syngui build -t web; по умолчанию fast-release, с --release — release)
   { crate = "syn-courier-panel", to = "usr/share/syncourier/panel" },   # index.html, pkg/ (+ .gz), ассеты
 ]
 links = { "usr/bin/syndesktop" = "synwm" }

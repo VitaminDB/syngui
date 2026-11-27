@@ -125,8 +125,11 @@ enum Cmd {
         target: Vec<String>,
         #[command(flatten)]
         sel: Sel,
-        /// Быстрая сборка fast-release вместо --release (проверить упаковку локально)
+        /// Публикация: cargo --release (LTO); APK — только релизным ключом. По умолчанию — fast-release
         #[arg(long)]
+        release: bool,
+        /// fast-release (по умолчанию; оставлено для совместимости)
+        #[arg(long, conflicts_with = "release")]
         fast: bool,
         /// Каталог для aur (по умолчанию target/syngui/aur)
         #[arg(short, long)]
@@ -347,7 +350,8 @@ fn real_main(cli: Cli) -> Result<()> {
             format,
             target,
             sel,
-            fast,
+            release,
+            fast: _,
             out,
             workspace,
             only,
@@ -365,6 +369,7 @@ fn real_main(cli: Cli) -> Result<()> {
                 Some(d) => Some(device::Device::parse(d)?),
                 None => None,
             };
+            let fast = !release;
             let profile = if fast {
                 Profile::Fast
             } else {
