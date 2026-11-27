@@ -45,6 +45,37 @@ impl ElementTree {
         self.overlay_stack.retain(|e| e.element_id != element_id);
     }
 
+    /// Элемент действительно виден: и он сам, и все его предки `is_visible()`,
+    /// и на каждом предке он входит в `active_child_count()` (иначе анимации
+    /// внутри закрытого `Portal`, скрытого `Tooltip` или `display: none`-родителя
+    /// крутились бы на 240 FPS вхолостую).
+    fn is_effectively_visible(&self, mut id: ElementId) -> bool {
+        let mut guard = 0usize;
+        while guard < 128 {
+            guard += 1;
+            let Some(node) = self.elements.get(&id) else {
+                return false;
+            };
+            if !node.element.is_visible() {
+                return false;
+            }
+            let Some(parent_id) = node.parent else {
+                return true;
+            };
+            let Some(parent) = self.elements.get(&parent_id) else {
+                return false;
+            };
+            let active = parent.element.active_child_count();
+            if active < parent.children.len()
+                && !parent.children.iter().take(active).any(|&c| c == id)
+            {
+                return false;
+            }
+            id = parent_id;
+        }
+        true
+    }
+
     /// Тикает анимации. Обход — только по реестру `animation_registry`:
     /// все точки старта анимаций регистрируют элемент (каскад стилей, диспетчер
     /// событий, измерение/позиционирование, scroll-into-view — см.
@@ -58,14 +89,13 @@ impl ElementTree {
 
         for id in ids {
             crate::perf::incr(crate::perf::Counter::AnimateVisit);
+            if !self.is_effectively_visible(id) {
+                continue;
+            }
             let node = match self.elements.get_mut(&id) {
                 Some(n) => n,
                 None => continue,
             };
-
-            if !node.element.is_visible() {
-                continue;
-            }
 
             let was_repainting =
                 node.element.needs_repaint() || super::tree_keyframes_running(&*node.element);

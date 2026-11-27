@@ -1,6 +1,6 @@
 use vte::{Params, Perform};
 
-use super::grid::{Attr, CellColor, CellFlags, Grid};
+use super::grid::{Attr, CellColor, CellFlags, Charset, Grid};
 use super::mouse::{MouseEncoding, MouseMode};
 
 pub struct Performer<'a> {
@@ -59,6 +59,8 @@ impl<'a> Perform for Performer<'a> {
                 self.grid.lf();
             }
             0x0D => self.grid.cr(),
+            0x0E => self.grid.set_active_charset(1), // SO (Shift Out → G1)
+            0x0F => self.grid.set_active_charset(0), // SI (Shift In → G0)
             0x07 => {}
             _ => {}
         }
@@ -243,22 +245,38 @@ impl<'a> Perform for Performer<'a> {
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
-        if !intermediates.is_empty() {
-            return;
-        }
-        match byte {
-            b'7' => self.grid.save_cursor(),
-            b'8' => self.grid.restore_cursor(),
-            b'H' => self.grid.set_tab_stop(),
-            b'M' => self.grid.reverse_index(),
-            b'D' => self.grid.lf(),
-            b'E' => {
-                self.grid.cr();
-                self.grid.lf();
-            }
-            b'c' => self.grid.reset(),
+        match intermediates {
+            [b'('] => self.grid.configure_charset(0, parse_charset(byte)),
+            [b')'] => self.grid.configure_charset(1, parse_charset(byte)),
+            [b'*'] => self.grid.configure_charset(2, parse_charset(byte)),
+            [b'+'] => self.grid.configure_charset(3, parse_charset(byte)),
+            [] => match byte {
+                b'7' => self.grid.save_cursor(),
+                b'8' => self.grid.restore_cursor(),
+                b'H' => self.grid.set_tab_stop(),
+                b'M' => self.grid.reverse_index(),
+                b'D' => self.grid.lf(),
+                b'E' => {
+                    self.grid.cr();
+                    self.grid.lf();
+                }
+                b'n' => self.grid.set_active_charset(2), // LS2 (G2 → GL)
+                b'o' => self.grid.set_active_charset(3), // LS3 (G3 → GL)
+                b'N' => self.grid.set_single_shift(2),   // SS2 (next char from G2)
+                b'O' => self.grid.set_single_shift(3),   // SS3 (next char from G3)
+                b'c' => self.grid.reset(),
+                _ => {}
+            },
             _ => {}
         }
+    }
+}
+
+fn parse_charset(byte: u8) -> Charset {
+    match byte {
+        b'0' => Charset::DecSpecialGraphics,
+        b'A' => Charset::Uk,
+        _ => Charset::Ascii,
     }
 }
 
@@ -679,6 +697,42 @@ mod tests {
                 b"\x1b[?2027;0$y".to_vec(),
             ]
         );
+    }
+
+    #[test]
+    fn dec_special_graphics_smacs_rmacs_and_nvtop_box() {
+        let mut g = Grid::new(40, 4);
+        // xterm-256color: smacs = \E(0, rmacs = \E(B (как шлёт ncurses / nvtop)
+        run(&mut g, b"87\x1b(0f\x1b(BC\r\n");
+        run(&mut g, b"\x1b(0lqqqk\x1b(B\r\n");
+        run(&mut g, b"\x1b(0x\x1b(Babc\x1b(0x\x1b(B\r\n");
+        run(&mut g, b"\x1b(0m\x1b(B0\x1b(0sj\x1b(B");
+        assert_eq!(row_str(&g, 0), "87°C");
+        assert_eq!(row_str(&g, 1), "┌───┐");
+        assert_eq!(row_str(&g, 2), "│abc│");
+        assert_eq!(row_str(&g, 3), "└0⎽┘");
+    }
+
+    #[test]
+    fn charset_g1_shift_out_in_and_single_shift_and_decsc() {
+        let mut g = Grid::new(40, 4);
+        // G1 = DEC Special Graphics, SO (0x0E) / SI (0x0F)
+        run(&mut g, b"\x1b)0A\x0elqk\x0fB\r\n");
+        assert_eq!(row_str(&g, 0), "A┌─┐B");
+
+        // G2 = DEC Special Graphics, SS2 (ESC N) действует ровно на один символ
+        run(&mut g, b"\x1b*0\x1bNqq\r\n");
+        assert_eq!(row_str(&g, 1), "─q");
+
+        // DECSC/DECRC сохраняют и восстанавливают таблицы; REP повторяет уже переведённый символ
+        run(&mut g, b"\x1b(0\x1b7\x1b(Bq");
+        assert_eq!(row_str(&g, 2), "q");
+        run(&mut g, b"\x1b8q\x1b[2b\r\n");
+        assert_eq!(row_str(&g, 2), "───");
+
+        // RIS (ESC c) сбрасывает таблицу в ASCII
+        run(&mut g, b"\x1bcq");
+        assert_eq!(row_str(&g, 0), "q");
     }
 }
 

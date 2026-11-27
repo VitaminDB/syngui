@@ -185,7 +185,7 @@ impl TerminalSession {
         if let Ok(mut guard) = self.inner.pump_join.lock() {
             *guard = Some(pump);
         }
-        self.inner.revision.fetch_add(1, Ordering::Release);
+        bump_revision(&self.inner);
     }
 
     pub fn resize(&self, cols: u16, rows: u16) {
@@ -218,7 +218,7 @@ impl TerminalSession {
                     p.resize(cols, rows);
                 }
             }
-            self.inner.revision.fetch_add(1, Ordering::Release);
+            bump_revision(&self.inner);
         }
     }
 
@@ -376,7 +376,7 @@ impl TerminalSession {
             s.grid.set_max_scrollback(lines);
             s.scroll_offset = s.scroll_offset.min(s.grid.scrollback_len());
         }
-        self.inner.revision.fetch_add(1, Ordering::Release);
+        bump_revision(&self.inner);
     }
 
     pub fn set_title_signal(&self, signal: RwSignal<String>) {
@@ -451,6 +451,15 @@ fn open_backend(config: &TerminalConfig, cols: u16, rows: u16) -> Option<(Backen
     }
 }
 
+/// Увеличить ревизию сетки и разбудить цикл событий UI: `TerminalElement::animate`
+/// проверит новую ревизию и запросит перерисовку только если терминал на экране.
+fn bump_revision(shared: &SessionShared) {
+    shared.revision.fetch_add(1, Ordering::Release);
+    #[cfg(feature = "winit")]
+    crate::app::request_tick(Duration::ZERO);
+    crate::async_runtime::wake_main_thread();
+}
+
 /// Поток разбора вывода PTY держит сессию только через [`Weak`]: сильная
 /// ссылка из него делала бы сессию бессмертной — закрытая вкладка не
 /// освобождала бы `SessionShared`, и PTY с процессами жили бы дальше без
@@ -484,7 +493,7 @@ fn pump_loop(weak: Weak<SessionShared>, rx: Receiver<Vec<u8>>) {
                 if let Some(since) = sync_pending {
                     if since.elapsed() >= SYNC_FLUSH_TIMEOUT {
                         sync_pending = None;
-                        shared.revision.fetch_add(1, Ordering::Release);
+                        bump_revision(&shared);
                     }
                 }
             }
@@ -494,7 +503,7 @@ fn pump_loop(weak: Weak<SessionShared>, rx: Receiver<Vec<u8>>) {
                 // замка, чтобы GUI-поток не стоял на `pty.lock()`.
                 let pty = shared.pty.lock().ok().and_then(|mut p| p.take());
                 drop(pty);
-                shared.revision.fetch_add(1, Ordering::Release);
+                bump_revision(&shared);
                 mark_exited(&shared);
                 break;
             }
@@ -574,11 +583,11 @@ fn process_chunk(
         let since = *sync_pending.get_or_insert_with(Instant::now);
         if since.elapsed() >= SYNC_FLUSH_TIMEOUT {
             *sync_pending = None;
-            shared.revision.fetch_add(1, Ordering::Release);
+            bump_revision(shared);
         }
     } else {
         *sync_pending = None;
-        shared.revision.fetch_add(1, Ordering::Release);
+        bump_revision(shared);
     }
 }
 

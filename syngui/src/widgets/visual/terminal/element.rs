@@ -49,7 +49,7 @@ pub struct TerminalElement {
     cell_h: f32,
 
     text_measure: Option<Arc<dyn TextMeasure>>,
-    cursor_phase: f32,
+    cursor_blink_origin: Instant,
     cursor_blink_visible: bool,
 
     rendered_revision: u64,
@@ -88,7 +88,7 @@ impl TerminalElement {
             cell_w: 8.0,
             cell_h: 16.0,
             text_measure: None,
-            cursor_phase: 0.0,
+            cursor_blink_origin: Instant::now(),
             cursor_blink_visible: true,
             rendered_revision: 0,
             left_button_held: false,
@@ -539,26 +539,38 @@ impl Element for TerminalElement {
             });
         }
 
-        let prev = self.cursor_blink_visible;
-        self.cursor_phase += dt.as_secs_f32();
-        if self.cursor_phase >= CURSOR_BLINK_PERIOD {
-            self.cursor_phase -= CURSOR_BLINK_PERIOD;
-        }
-        self.cursor_blink_visible = self.cursor_phase < CURSOR_BLINK_PERIOD * 0.5;
-        if prev != self.cursor_blink_visible {
-            let need_blink_repaint = self
-                .session
-                .as_ref()
-                .map(|s| {
-                    s.with_state_ref(|st| {
-                        st.focused && st.scroll_offset == 0 && st.grid.cursor_visible()
-                    })
+        let need_blink = self
+            .session
+            .as_ref()
+            .map(|s| {
+                s.with_state_ref(|st| {
+                    st.focused && st.scroll_offset == 0 && st.grid.cursor_visible()
                 })
-                .unwrap_or(false);
-            if need_blink_repaint {
+            })
+            .unwrap_or(false);
+        if need_blink {
+            let half = CURSOR_BLINK_PERIOD * 0.5;
+            let phase = self.cursor_blink_origin.elapsed().as_secs_f32() % CURSOR_BLINK_PERIOD;
+            let visible = phase < half;
+            if visible != self.cursor_blink_visible {
+                self.cursor_blink_visible = visible;
                 self.mark_dirty(DirtyFlags::RENDER);
                 dirty = true;
             }
+            // Будим цикл событий только к следующей смене фазы курсора (~500 мс),
+            // вместо 240 Гц вхолостую.
+            #[cfg(feature = "winit")]
+            {
+                let rem = if phase < half {
+                    half - phase
+                } else {
+                    CURSOR_BLINK_PERIOD - phase
+                };
+                crate::app::request_tick(Duration::from_secs_f32(rem.max(0.016)));
+            }
+        } else if !self.cursor_blink_visible {
+            self.cursor_blink_visible = true;
+            self.cursor_blink_origin = Instant::now();
         }
 
         if self.auto_scroll != 0 {
@@ -584,6 +596,15 @@ impl Element for TerminalElement {
         if self.scrollbar_fader.tick(dt.as_secs_f32(), &style) {
             self.mark_dirty(DirtyFlags::RENDER);
             dirty = true;
+        } else if matches!(style.policy, crate::widgets::scroll::ScrollbarPolicy::Auto)
+            && self.scrollbar_fader.opacity > 0.0
+            && !self.scrollbar_fader.hovered
+            && !self.scrollbar_fader.dragging
+        {
+            // Пока скроллбар ждёт fade_delay, тикаем без перерисовки (50 мс < 64 мс,
+            // так что anim_dt не обрезается и затухание начнётся вовремя).
+            #[cfg(feature = "winit")]
+            crate::app::request_tick(Duration::from_millis(50));
         }
 
         if let Some(sig) = self.command_signal {
@@ -595,14 +616,10 @@ impl Element for TerminalElement {
             }
         }
 
-        let _ = dirty;
-        let alive = self.session.as_ref().map(|s| s.is_alive()).unwrap_or(false);
-        let focused = self
-            .session
-            .as_ref()
-            .map(|s| s.with_state_ref(|st| st.focused))
-            .unwrap_or(false);
-        alive || focused || self.scrollbar_fader.opacity > 0.0
+        // Новые байты из PTY будят цикл через `session::bump_revision`
+        // (`request_tick(ZERO)` + `wake_main_thread`), так что в простое
+        // возвращаем только `dirty` — без холостых кадров на 240 Гц.
+        dirty || self.auto_scroll != 0
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {

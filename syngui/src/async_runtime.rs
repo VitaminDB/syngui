@@ -61,6 +61,17 @@ pub fn run_on_main_thread_wake_only(f: impl FnOnce() + Send + 'static) {
     }
 }
 
+/// Разбудить цикл событий главного потока без аллокации замыкания и без
+/// принудительного `request_redraw` (например, из фонового потока чтения PTY,
+/// чтобы `update()` проверил новую ревизию терминала).
+pub(crate) fn wake_main_thread() {
+    if let Ok(guard) = WAKER.lock() {
+        if let Some(wake) = guard.as_ref() {
+            wake();
+        }
+    }
+}
+
 /// Установить пробудитель event loop'а для `run_on_main_thread` (обычно
 /// замыкание над `EventLoopProxy::send_event`). Ставится раннером при старте.
 pub fn set_main_thread_waker(wake: impl Fn() + Send + 'static) {

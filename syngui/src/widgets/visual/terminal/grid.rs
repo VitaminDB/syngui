@@ -74,11 +74,73 @@ pub struct Cursor {
     pub wrap_pending: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum Charset {
+    #[default]
+    Ascii,
+    /// VT100 DEC Special Character and Line Drawing Set (`ESC ( 0`, `smacs`).
+    DecSpecialGraphics,
+    /// UK National Replacement Character Set (`ESC ( A`): `#` → `£`.
+    Uk,
+}
+
+impl Charset {
+    pub fn map(self, ch: char) -> char {
+        match self {
+            Charset::Ascii => ch,
+            Charset::Uk => {
+                if ch == '#' {
+                    '£'
+                } else {
+                    ch
+                }
+            }
+            Charset::DecSpecialGraphics => match ch {
+                '_' => ' ',
+                '`' => '◆',
+                'a' => '▒',
+                'b' => '␉',
+                'c' => '␌',
+                'd' => '␍',
+                'e' => '␊',
+                'f' => '°',
+                'g' => '±',
+                'h' => '␤',
+                'i' => '␋',
+                'j' => '┘',
+                'k' => '┐',
+                'l' => '┌',
+                'm' => '└',
+                'n' => '┼',
+                'o' => '⎺',
+                'p' => '⎻',
+                'q' => '─',
+                'r' => '⎼',
+                's' => '⎽',
+                't' => '├',
+                'u' => '┤',
+                'v' => '┴',
+                'w' => '┬',
+                'x' => '│',
+                'y' => '≤',
+                'z' => '≥',
+                '{' => 'π',
+                '|' => '≠',
+                '}' => '£',
+                '~' => '·',
+                _ => ch,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Copy, Default, Debug)]
 struct SavedCursor {
     cursor: Cursor,
     attr: Attr,
     origin_mode: bool,
+    charsets: [Charset; 4],
+    active_charset: usize,
 }
 
 struct InactiveBuffer {
@@ -129,6 +191,12 @@ pub struct Grid {
     tab_stops: Vec<bool>,
     /// Последний напечатанный графический символ (для `CSI n b` REP).
     last_printed: Option<char>,
+    /// Таблицы символов G0..G3 (`ESC (`, `ESC )`, `ESC *`, `ESC +`).
+    charsets: [Charset; 4],
+    /// Активная таблица в GL (0 = G0 по умолчанию, 1 = G1 через SO `0x0E`, 2/3 через LS2/LS3).
+    active_charset: usize,
+    /// Одноразовый сдвиг на следующий символ (`ESC N` SS2 → G2, `ESC O` SS3 → G3).
+    single_shift: Option<usize>,
     current_link_id: Option<u32>,
     links: Vec<Arc<str>>,
     link_lookup: HashMap<Arc<str>, u32>,
@@ -167,6 +235,9 @@ impl Grid {
             sync_update: false,
             tab_stops: default_tab_stops(cols),
             last_printed: None,
+            charsets: [Charset::Ascii; 4],
+            active_charset: 0,
+            single_shift: None,
             current_link_id: None,
             links: Vec::new(),
             link_lookup: HashMap::new(),
@@ -333,6 +404,27 @@ impl Grid {
         self.sync_update = on;
     }
 
+    /// Назначить таблицу символов в слот G0..G3 (`ESC (`, `ESC )`, `ESC *`, `ESC +`).
+    pub fn configure_charset(&mut self, slot: usize, charset: Charset) {
+        if let Some(target) = self.charsets.get_mut(slot) {
+            *target = charset;
+        }
+    }
+
+    /// Переключить активную таблицу GL (`SI` 0x0F → 0, `SO` 0x0E → 1, `ESC n` → 2, `ESC o` → 3).
+    pub fn set_active_charset(&mut self, slot: usize) {
+        if slot < self.charsets.len() {
+            self.active_charset = slot;
+        }
+    }
+
+    /// Одноразовый сдвиг таблицы на один следующий печатный символ (`ESC N` → 2, `ESC O` → 3).
+    pub fn set_single_shift(&mut self, slot: usize) {
+        if slot < self.charsets.len() {
+            self.single_shift = Some(slot);
+        }
+    }
+
     pub fn enter_alt_screen(&mut self, clear: bool) {
         if self.on_alt {
             return;
@@ -372,6 +464,9 @@ impl Grid {
         self.auto_wrap = true;
         self.sync_update = false;
         self.tab_stops = default_tab_stops(self.cols);
+        self.charsets = [Charset::Ascii; 4];
+        self.active_charset = 0;
+        self.single_shift = None;
         self.current_link_id = None;
         self.revision += 1;
     }
@@ -622,6 +717,12 @@ impl Grid {
     }
 
     pub fn print(&mut self, ch: char) {
+        let slot = self.single_shift.take().unwrap_or(self.active_charset);
+        let ch = self.charsets[slot].map(ch);
+        self.print_raw(ch);
+    }
+
+    fn print_raw(&mut self, ch: char) {
         let width = ch.width().unwrap_or(0);
         if width == 0 {
             return;
@@ -720,7 +821,7 @@ impl Grid {
         };
         let cap = self.cols.saturating_mul(self.rows).max(1);
         for _ in 0..n.min(cap) {
-            self.print(ch);
+            self.print_raw(ch);
         }
     }
 
@@ -881,6 +982,8 @@ impl Grid {
             cursor: self.cursor,
             attr: self.current_attr,
             origin_mode: self.origin_mode,
+            charsets: self.charsets,
+            active_charset: self.active_charset,
         });
     }
 
@@ -891,6 +994,9 @@ impl Grid {
             self.cursor.col = self.cursor.col.min(self.cols - 1);
             self.current_attr = saved.attr;
             self.origin_mode = saved.origin_mode;
+            self.charsets = saved.charsets;
+            self.active_charset = saved.active_charset;
+            self.single_shift = None;
             self.revision += 1;
         }
     }

@@ -847,16 +847,31 @@ impl AppHandler {
 
         // Тик без кадра (см. crate::app::request_tick): обход анимаций
         // продолжается во всех окнах, кадр — только если они пометят что-то
-        // грязным.
-        let tick = crate::app::take_tick_request();
-        if let Some(delay) = tick {
+        // грязным. Забираем заявку до обхода (внешнее пробуждение — например,
+        // фоновый поток PTY поставил `Duration::ZERO` и разбудил цикл) и после
+        // обхода (заявки, выставленные изнутри `Element::animate`, например
+        // мигание курсора через 500 мс или VideoView через 40 мс).
+        let external_tick = crate::app::take_tick_request();
+        if let Some(delay) = external_tick {
+            if !delay.is_zero() {
+                self.wakeup_after = Some(match self.wakeup_after {
+                    Some(d) => d.min(delay),
+                    None => delay,
+                });
+            }
+        }
+
+        self.for_each_window(|this| this.update_window(now, dt, theme, external_tick.is_some()));
+
+        if let Some(delay) = crate::app::take_tick_request() {
             self.wakeup_after = Some(match self.wakeup_after {
                 Some(d) => d.min(delay),
                 None => delay,
             });
+            self.for_each_window(|this| {
+                this.win.tree.animations_armed = true;
+            });
         }
-
-        self.for_each_window(|this| this.update_window(now, dt, theme, tick.is_some()));
     }
 
     /// Смена темы (`theme_state`) и живой таблицы стилей (`with_dynamic_theme`,
@@ -1051,6 +1066,9 @@ impl AppHandler {
                 .map_or(true, |t| now.duration_since(t) >= min_interval)
         };
 
+        if tick {
+            self.win.tree.animations_armed = true;
+        }
         if let Some(root_id) = self.win.root_id {
             // Обход всех элементов — только пока «взведено» (см. animations_armed):
             // события, рендер и новые элементы взводят, пустой обход даёт отбой.
@@ -1101,9 +1119,6 @@ impl AppHandler {
                     self.win.tree.animations_armed = false;
                 }
             }
-        }
-        if tick {
-            self.win.tree.animations_armed = true;
         }
 
         // Грязные элементы сигналов — перерисовать окно, в дереве которого они
