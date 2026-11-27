@@ -50,6 +50,19 @@ pub fn viewport_below(width: f32) -> RwSignal<bool> {
     sig
 }
 
+/// `true`, пока высота вьюпорта меньше `height` — для раскладок, которые
+/// вписываются в окно по высоте и должны перейти на прокрутку, когда места
+/// мало (низкое окно, крупный масштаб интерфейса или браузера). Правила те
+/// же, что у [`viewport_below`].
+pub fn viewport_height_below(height: f32) -> RwSignal<bool> {
+    let vp = viewport_size();
+    let sig = use_signal(vp.get_untracked().height < height);
+    create_effect(move || {
+        sig.set(vp.get().height < height);
+    });
+    sig
+}
+
 /// Публикация нового размера фреймворком. Дедупликация в `set()`: подписчики
 /// будятся только при реальном изменении размера.
 pub(crate) fn publish(size: Size) {

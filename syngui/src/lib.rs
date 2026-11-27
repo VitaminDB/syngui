@@ -141,7 +141,7 @@ pub mod prelude {
 
     pub use crate::scale::{set_ui_scale, ui_scale, MAX_UI_SCALE, MIN_UI_SCALE};
     pub use crate::theme_fallback::{is_dark_theme, set_dark_theme};
-    pub use crate::viewport::{viewport_below, viewport_size};
+    pub use crate::viewport::{viewport_below, viewport_height_below, viewport_size};
 
     #[cfg(feature = "tokio")]
     pub use crate::async_hook::use_async;
