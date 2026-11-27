@@ -1387,7 +1387,31 @@ pub fn rasterize_svg(bytes: &[u8], max_side: u32) -> Result<(u32, u32, Vec<u8>, 
     use resvg::tiny_skia;
     use resvg::usvg;
 
-    let opt = usvg::Options::default();
+    // системные шрифты — один раз на процесс: без них `<text>` в SVG не рисуется
+    static FONTS: std::sync::OnceLock<Arc<usvg::fontdb::Database>> = std::sync::OnceLock::new();
+    let mut opt = usvg::Options::default();
+    opt.fontdb = FONTS
+        .get_or_init(|| {
+            let mut db = usvg::fontdb::Database::new();
+            db.load_system_fonts();
+            // общие семейства (sans-serif и т. д.) — на установленные шрифты:
+            // по умолчанию fontdb ждёт Arial/Times New Roman, которых может не быть
+            let has = |db: &usvg::fontdb::Database, name: &str| db.faces().any(|f| f.families.iter().any(|(n, _)| n == name));
+            let pick = |db: &usvg::fontdb::Database, list: &[&str]| list.iter().find(|n| has(db, n)).map(|n| n.to_string());
+            if let Some(n) = pick(&db, &["Noto Sans", "DejaVu Sans", "Liberation Sans", "Cantarell", "Inter", "Roboto"]) {
+                db.set_sans_serif_family(n);
+            }
+            if let Some(n) = pick(&db, &["Noto Serif", "DejaVu Serif", "Liberation Serif"]) {
+                db.set_serif_family(n);
+            }
+            if let Some(n) = pick(&db, &["Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", "JetBrains Mono"]) {
+                db.set_monospace_family(n);
+            }
+            Arc::new(db)
+        })
+        .clone();
+    // семейство без указания в SVG — как sans-serif (а не Times New Roman)
+    opt.font_family = "sans-serif".into();
     let tree = usvg::Tree::from_data(bytes, &opt).map_err(|e| format!("svg parse: {e}"))?;
     let size = tree.size();
     let side = size.width().max(size.height());
